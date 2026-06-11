@@ -224,6 +224,27 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
 }
 .feel{font-size:13px;color:var(--text-dim);margin-top:4px}
 
+/* ── ALERTĂ PLOAIE ── */
+.rain-alert {
+  display: none;
+  background: rgba(244, 67, 54, 0.2);
+  border: 1px solid rgba(244, 67, 54, 0.4);
+  color: #ff8a80;
+  padding: 10px 16px;
+  border-radius: 12px;
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  align-items: center;
+  gap: 8px;
+  animation: pulse-alert 2s infinite alternate;
+}
+body.weather-snow-day .rain-alert { color: #b71c1c; background: rgba(244, 67, 54, 0.15); }
+@keyframes pulse-alert {
+  0% { box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.2); }
+  100% { box-shadow: 0 0 0 6px rgba(244, 67, 54, 0); }
+}
+
 .stats-row{
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(110px,1fr));
@@ -328,8 +349,6 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
 .day-min{font-size:13px;color:var(--text-dim)}
 .day-max{font-size:15px;font-weight:600}
 
-/* ── RAIN 10DAY CHART ── */
-
 /* ── SKELETON ── */
 .skeleton{
   animation:shimmer 1.4s infinite;
@@ -433,7 +452,6 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
 
 <div id="app">
 
-  <!-- SEARCH -->
   <div class="search-wrap">
     <div class="search-box">
       <input type="text" id="search-input" placeholder="Caută un oraș…" autocomplete="off" />
@@ -452,21 +470,22 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
     </button>
   </div>
 
-  <!-- QUICK LOCATIONS -->
   <div id="quick-locations" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"></div>
 
   <div id="error-msg"></div>
 
-  <!-- MAIN CARD -->
   <div class="main-card" id="main-card" style="display:none">
     <div class="location-row">
       <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
       <span id="country-name"></span>
-      <span id="local-time" style="margin-left:auto;font-size:12px"></span>
+      <span id="local-time" style="margin-left:auto;font-size:13px;font-weight:500;letter-spacing:0.3px;text-transform:capitalize;"></span>
     </div>
     <div class="city-name" id="city-name">—</div>
     <div class="weather-desc" id="weather-desc">—</div>
     <div class="feel" id="feel-text"></div>
+    
+    <div class="rain-alert" id="rain-alert"></div>
+
     <div class="weather-main">
       <div class="temp-block">
         <div class="temp-val" id="temp-val">—</div>
@@ -477,19 +496,16 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
     <div class="stats-row" id="stats-row"></div>
   </div>
 
-  <!-- HOURLY -->
   <div class="hourly-outer" id="hourly-outer" style="display:none">
     <div class="section-title">Prognoză orară</div>
     <div class="hourly-scroll" id="hourly-scroll"></div>
   </div>
 
-  <!-- RAIN NEXT 6H -->
   <div class="chart-card" id="rain6h-card" style="display:none">
     <div class="section-title">Precipitații — următoarele 6 ore</div>
     <div class="chart-wrap"><canvas id="rain6h-chart"></canvas></div>
   </div>
 
-  <!-- WIND -->
   <div class="wind-card" id="wind-card" style="display:none">
     <div class="compass-wrap">
       <div class="compass-ring">
@@ -512,13 +528,11 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
     </div>
   </div>
 
-  <!-- 10-DAY FORECAST -->
   <div class="ten-day-card" id="ten-day-card" style="display:none">
     <div class="section-title">Prognoză 10 zile</div>
     <div id="ten-day-rows"></div>
   </div>
 
-  <!-- RAIN 10-DAY CHART -->
   <div class="chart-card" id="rain10d-card" style="display:none">
     <div class="section-title" style="justify-content:space-between;align-items:center">
       <span style="display:flex;align-items:center;gap:8px">
@@ -536,18 +550,13 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
 /* ════════════════════════════════
    CONFIG
 ════════════════════════════════ */
-// ──────────────────────────────────────────
-// 🔑 PUNE CHEIA TA API OPENWEATHERMAP AICI:
 const API_KEY = 'ee0752dafdd6f36c381645918f861faa';
-// ──────────────────────────────────────────
 
-// ──────────────────────────────────────────
-// 📍 LOCAȚII RAPIDE (editează după nevoie):
 const QUICK_LOCATIONS = [
   { label: 'București', lat: 44.4268, lon: 26.1025 },
   { label: 'Bolintin Vale', lat: 44.44889, lon: 25.75778 },
 ];
-// ──────────────────────────────────────────
+
 const BASE = 'https://api.openweathermap.org/data/2.5';
 const GEO  = 'https://api.openweathermap.org/geo/1.0';
 
@@ -689,6 +698,7 @@ function renderAll(cur, fore){
   renderWind(cur);
   renderTenDay(fore);
   renderRain10d(fore);
+  checkRainAlert(fore); // MODIFICAT: Rulează verificarea pentru avertizarea de ploaie
   showAll();
 }
 
@@ -765,6 +775,25 @@ function makeParticles(cls, dn){
   }
 }
 
+/* ── HELPER UPDATE TIME ── */
+// MODIFICAT: Funcție separată care calculează și formatează corect Data + Ora locației selectate
+function updateTimeDisplay(){
+  if(!currentWeatherData) return;
+  const {cur} = currentWeatherData;
+  const utcMs = Date.now();
+  const offset = cur.timezone * 1000;
+  
+  // Calculare timp local pe baza fusului orar returnat de API
+  const localMs = utcMs + offset + (new Date().getTimezoneOffset() * 60000);
+  const localDate = new Date(localMs);
+  
+  const timeEl = document.getElementById('local-time');
+  if(timeEl) {
+    const options = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+    timeEl.textContent = localDate.toLocaleDateString('ro-RO', options).replace(/\./g, '');
+  }
+}
+
 /* ── MAIN CARD ── */
 function renderMain(cur){
   document.getElementById('city-name').textContent = cur.name;
@@ -773,18 +802,13 @@ function renderMain(cur){
   document.getElementById('weather-desc').textContent = cur.weather[0].description;
   document.getElementById('feel-text').textContent = `Se simte ca ${Math.round(cur.main.feels_like)}°C`;
 
-  // Local time
-  const utcMs = Date.now();
-  const offset = cur.timezone * 1000;
-  const localMs = utcMs + offset - (new Date().getTimezoneOffset()*60000);
-  const localDate = new Date(localMs);
-  document.getElementById('local-time').textContent = localDate.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'});
+  // MODIFICAT: Afișează imediat data și ora corectă a locației
+  updateTimeDisplay();
 
   // Stats
   const hum = cur.main.humidity;
   const vis = cur.visibility ? (cur.visibility/1000).toFixed(1)+'km' : 'N/A';
   const pres = cur.main.pressure + ' hPa';
-  const uvIdx = '—';
   const rain1h = cur.rain?.['1h'] ? cur.rain['1h'].toFixed(1)+' mm' : '0 mm';
   const srRaw = new Date((cur.sys.sunrise+cur.timezone)*1000+new Date().getTimezoneOffset()*60000);
   const ssRaw = new Date((cur.sys.sunset+cur.timezone)*1000+new Date().getTimezoneOffset()*60000);
@@ -813,9 +837,28 @@ function isDayTime(cur){
   return cur.dt > cur.sys.sunrise && cur.dt < cur.sys.sunset;
 }
 
+/* ── ADAUGAT: VERIFICARE ALERTA PLOAIE ── */
+function checkRainAlert(fore) {
+  const alertEl = document.getElementById('rain-alert');
+  if (!fore || !fore.list || fore.list.length === 0) {
+    alertEl.style.display = 'none';
+    return;
+  }
+  
+  // list[0] reprezintă prima intrare din prognoză (următoarele 3 ore)
+  const next3h = fore.list[0];
+  const rainAmount = next3h.rain ? (next3h.rain['3h'] || 0) : 0;
+  
+  if (rainAmount > 0) {
+    alertEl.innerHTML = `⚠️ <strong>Alertă:</strong> În următoarele ore va ploua ${rainAmount.toFixed(1)} mm`;
+    alertEl.style.display = 'flex';
+  } else {
+    alertEl.style.display = 'none';
+  }
+}
+
 /* ── HOURLY ── */
 function renderHourly(fore){
-  const now = Date.now()/1000;
   const items = fore.list.slice(0,16);
   document.getElementById('hourly-scroll').innerHTML = items.map((h,i)=>{
     const isNow = i===0;
@@ -846,8 +889,6 @@ function isHourDay(dt){
 
 /* ── RAIN 6H ── */
 function renderRain6h(fore){
-  const next6 = fore.list.slice(0,3); // 3h intervals = ~9h, take first 2 for 6h
-  // actually get up to 6h: list is 3h intervals
   const n = fore.list.slice(0,3);
   const hasRain = n.some(h=>(h.rain?.['3h']||0)>0);
 
@@ -913,7 +954,6 @@ function beaufort(kmh){
 
 /* ── 10-DAY ── */
 function renderTenDay(fore){
-  // Group by day
   const days = {};
   fore.list.forEach(h=>{
     const d = new Date(h.dt*1000).toLocaleDateString('ro-RO',{weekday:'short',day:'numeric',month:'short'});
@@ -928,7 +968,6 @@ function renderTenDay(fore){
   const dayArr = Object.entries(days).slice(0,10);
   const container = document.getElementById('ten-day-rows');
   container.innerHTML = dayArr.map(([date,d],i)=>{
-    const code = mostCommon(d.codes);
     const svgId = `tdicon-${i}`;
     return `
       <div class="day-row">
@@ -967,7 +1006,6 @@ function renderRain10d(fore){
   const labels=entries.map(e=>e[0]);
   const vals=entries.map(e=>+e[1].toFixed(1));
 
-  // Total badge
   const total = vals.reduce((a,b)=>a+b,0);
   const badge = document.getElementById('rain10d-total');
   if(badge) badge.textContent = `Total: ${total.toFixed(1)} mm`;
@@ -978,7 +1016,6 @@ function renderRain10d(fore){
   gradient.addColorStop(0,'rgba(79,195,247,0.65)');
   gradient.addColorStop(1,'rgba(79,195,247,0.08)');
 
-  // Inline datalabels plugin
   const datalabelsPlugin = {
     id:'topLabels',
     afterDatasetsDraw(chart){
@@ -1066,7 +1103,6 @@ function drawSun(svg,s){
   const cx=s/2,cy=s/2,r=s*0.22;
   const g=el('g',{},svg);
   el('circle',{cx,cy,r,fill:'#FFD54F'},g);
-  // Rays
   for(let i=0;i<8;i++){
     const a=(i/8)*Math.PI*2;
     const x1=cx+Math.cos(a)*(r+s*0.04);
@@ -1075,7 +1111,6 @@ function drawSun(svg,s){
     const y2=cy+Math.sin(a)*(r+s*0.12);
     el('line',{x1,y1,x2,y2,stroke:'#FFD54F','stroke-width':s*0.04,'stroke-linecap':'round'},g);
   }
-  // Glow
   el('circle',{cx,cy,r:r+s*0.04,fill:'rgba(255,213,79,0.2)'},svg);
 }
 
@@ -1170,17 +1205,11 @@ function hideError(){
 }
 
 /* ════════════════════════════════
-   CLOCK UPDATE
+   CLOCK UPDATE (MODIFICAT)
 ════════════════════════════════ */
+// Actualizează ceasul local la fiecare 30 de secunde utilizând noua funcție dedicată
 setInterval(()=>{
-  if(!currentWeatherData) return;
-  const {cur}=currentWeatherData;
-  const utcMs=Date.now();
-  const offset=cur.timezone*1000;
-  const localMs=utcMs+offset-(new Date().getTimezoneOffset()*60000);
-  const localDate=new Date(localMs);
-  const el=document.getElementById('local-time');
-  if(el) el.textContent=localDate.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'});
+  updateTimeDisplay();
 },30000);
 
 /* ════════════════════════════════
@@ -1200,7 +1229,6 @@ function renderQuickLocations(){
 function selectQuickLoc(i){
   const loc = QUICK_LOCATIONS[i];
   if(!loc) return;
-  // Mark active
   document.querySelectorAll('.btn-quick').forEach((b,j)=>b.classList.toggle('active',j===i));
   searchInput.value = loc.label;
   fetchWeather(loc.lat, loc.lon, loc.label);
@@ -1208,7 +1236,6 @@ function selectQuickLoc(i){
 
 function loadDefault(){
   renderQuickLocations();
-  // Default: first quick location
   if(QUICK_LOCATIONS.length){
     const first = QUICK_LOCATIONS[0];
     fetchWeather(first.lat, first.lon, first.label);
@@ -1223,7 +1250,7 @@ function loadDefault(){
 
 window.addEventListener('DOMContentLoaded',()=>{
   if(!checkApiKey()){
-    return; // wait for key
+    return;
   }
   loadDefault();
 });
