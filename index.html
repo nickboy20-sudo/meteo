@@ -527,6 +527,10 @@ body.weather-snow-day .rain-alert { color: #b71c1c; background: rgba(244, 67, 54
       <div class="wind-stats" id="wind-stats"></div>
     </div>
   </div>
+  <div class="chart-card" id="wind-chart-card" style="display:none">
+      <div class="section-title">Evoluția Vântului — următoarele 24 ore</div>
+      <div class="chart-wrap"><canvas id="wind-chart"></canvas></div>
+    </div>
 
   <div class="ten-day-card" id="ten-day-card" style="display:none">
     <div class="section-title">Prognoză 10 zile</div>
@@ -562,6 +566,7 @@ const GEO  = 'https://api.openweathermap.org/geo/1.0';
 
 let rain6hChart = null;
 let rain10dChart = null;
+let windChart = null;
 let currentWeatherData = null;
 
 /* ════════════════════════════════
@@ -696,6 +701,7 @@ function renderAll(cur, fore){
   renderHourly(fore);
   renderRain6h(fore);
   renderWind(cur);
+  renderWindChart(fore);
   renderTenDay(fore);
   renderRain10d(fore);
   checkRainAlert(fore); // MODIFICAT: Rulează verificarea pentru avertizarea de ploaie
@@ -940,6 +946,67 @@ function renderWind(cur){
     <div class="wind-stat-row"><span>Rafale</span><span>${gust}</span></div>
     <div class="wind-stat-row"><span>Beaufort</span><span>${beaufort(speed)}</span></div>
   `;
+}
+/* ── WIND CHART 24H ── */
+function renderWindChart(fore) {
+  // Preluăm primele 8 intervale (aprox 24 ore)
+  const n = fore.list.slice(0, 8);
+  
+  const card = document.getElementById('wind-chart-card');
+  if(!n.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  // Formatăm orele pentru axa X și convertim m/s în km/h pentru axa Y
+  const labels = n.map(h => new Date(h.dt * 1000).toLocaleTimeString('ro-RO', {hour:'2-digit', minute:'2-digit'}));
+  const vals = n.map(h => Math.round((h.wind?.speed || 0) * 3.6));
+
+  if(windChart) windChart.destroy();
+  
+  const ctx = document.getElementById('wind-chart').getContext('2d');
+  
+  // Creăm un gradient pentru efectul de "fill" sub linie
+  const gradient = ctx.createLinearGradient(0, 0, 0, 180);
+  gradient.addColorStop(0, 'rgba(79,195,247,0.4)');
+  gradient.addColorStop(1, 'rgba(79,195,247,0.0)');
+
+  windChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Viteză vânt (km/h)',
+        data: vals,
+        borderColor: '#4fc3f7',
+        backgroundColor: gradient,
+        borderWidth: 2,
+        pointBackgroundColor: '#fff',
+        pointBorderColor: '#4fc3f7',
+        pointRadius: 3,
+        fill: true,
+        tension: 0.4 // Curbură fină a liniei
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => `${c.parsed.y} km/h` } }
+      },
+      scales: {
+        x: { 
+          grid: { color: 'rgba(255,255,255,0.06)' }, 
+          ticks: { color: 'rgba(255,255,255,0.6)', font: { size: 11 } } 
+        },
+        y: { 
+          grid: { color: 'rgba(255,255,255,0.06)' }, 
+          ticks: { color: 'rgba(255,255,255,0.6)', font: { size: 11 } }, 
+          min: 0, 
+          title: { display: true, text: 'km/h', color: 'rgba(255,255,255,0.4)', font: { size: 10 } } 
+        }
+      }
+    }
+  });
 }
 
 function degToDir(d){
@@ -1191,7 +1258,8 @@ function drawFog(svg,s){
    UTILS
 ════════════════════════════════ */
 function showAll(){
-  ['main-card','hourly-outer','wind-card','ten-day-card','rain10d-card'].forEach(id=>{
+  // Adaugă 'wind-chart-card' în array-ul de mai jos
+  ['main-card','hourly-outer','wind-card','wind-chart-card','ten-day-card','rain10d-card'].forEach(id=>{
     document.getElementById(id).style.display='';
   });
 }
