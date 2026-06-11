@@ -142,6 +142,25 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
 .btn-gps.loading{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+/* ── QUICK LOCATIONS ── */
+.btn-quick{
+  display:flex;align-items:center;gap:6px;
+  padding:7px 14px;
+  background:rgba(255,255,255,0.09);
+  backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,0.15);
+  border-radius:50px;
+  color:var(--text);
+  font-family:'Inter',sans-serif;
+  font-size:12px;
+  cursor:pointer;
+  transition:all 0.2s;
+  white-space:nowrap;
+}
+.btn-quick:hover{background:rgba(79,195,247,0.2);border-color:rgba(79,195,247,0.5)}
+.btn-quick.active{background:rgba(79,195,247,0.25);border-color:rgba(79,195,247,0.6);color:#4fc3f7}
+.btn-quick svg{opacity:0.6}
+
 /* ── ERROR ── */
 #error-msg{
   text-align:center;padding:20px;
@@ -433,6 +452,9 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
     </button>
   </div>
 
+  <!-- QUICK LOCATIONS -->
+  <div id="quick-locations" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"></div>
+
   <div id="error-msg"></div>
 
   <!-- MAIN CARD -->
@@ -518,6 +540,14 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
 // 🔑 PUNE CHEIA TA API OPENWEATHERMAP AICI:
 const API_KEY = 'ee0752dafdd6f36c381645918f861faa';
 // ──────────────────────────────────────────
+
+// ──────────────────────────────────────────
+// 📍 LOCAȚII RAPIDE (editează după nevoie):
+const QUICK_LOCATIONS = [
+  { label: 'București', lat: 44.4268, lon: 26.1025 },
+  { label: 'Bolintin Vale', lat: 44.44889, lon: 25.75778 },
+];
+// ──────────────────────────────────────────
 const BASE = 'https://api.openweathermap.org/data/2.5';
 const GEO  = 'https://api.openweathermap.org/geo/1.0';
 
@@ -566,15 +596,25 @@ document.addEventListener('click', e=>{
 async function fetchSuggestions(q){
   if(!API_KEY) return;
   try{
-    const r = await fetch(`${GEO}/direct?q=${encodeURIComponent(q)}&limit=5&appid=${API_KEY}`);
+    const r = await fetch(`${GEO}/direct?q=${encodeURIComponent(q)}&limit=8&appid=${API_KEY}`);
     const data = await r.json();
     if(!Array.isArray(data)||data.length===0){sugBox.classList.remove('open');return}
-    sugBox.innerHTML = data.map(c=>`
-      <div class="sug-item" data-lat="${c.lat}" data-lon="${c.lon}" data-name="${c.name}">
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        ${c.name}${c.state?', '+c.state:''}<span style="margin-left:auto;font-size:11px;opacity:0.5">${c.country}</span>
-      </div>
-    `).join('');
+    sugBox.innerHTML = data.map(c=>{
+      const parts=[];
+      if(c.state) parts.push(c.state);
+      parts.push(c.country);
+      const coords=`${c.lat.toFixed(2)}°, ${c.lon.toFixed(2)}°`;
+      const subtitle=parts.join(', ');
+      return `
+        <div class="sug-item" data-lat="${c.lat}" data-lon="${c.lon}" data-name="${c.name}">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0;opacity:0.5;margin-top:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+            <span style="font-size:14px">${c.name}</span>
+            <span style="font-size:11px;opacity:0.5">${subtitle} &nbsp;·&nbsp; <span style="font-family:monospace;font-size:10px">${coords}</span></span>
+          </div>
+        </div>
+      `;
+    }).join('');
     sugBox.classList.add('open');
     sugBox.querySelectorAll('.sug-item').forEach(el=>{
       el.addEventListener('click',()=>{
@@ -592,6 +632,7 @@ async function fetchByName(q){
     const r = await fetch(`${GEO}/direct?q=${encodeURIComponent(q)}&limit=1&appid=${API_KEY}`);
     const data = await r.json();
     if(!data.length){showError('Orașul nu a fost găsit.');return}
+    document.querySelectorAll('.btn-quick').forEach(b=>b.classList.remove('active'));
     fetchWeather(data[0].lat, data[0].lon, data[0].name);
   }catch(e){showError('Eroare la geocodare.')}
 }
@@ -1145,9 +1186,39 @@ setInterval(()=>{
 /* ════════════════════════════════
    INIT
 ════════════════════════════════ */
+function renderQuickLocations(){
+  const wrap = document.getElementById('quick-locations');
+  if(!wrap || !QUICK_LOCATIONS.length) return;
+  wrap.innerHTML = QUICK_LOCATIONS.map((loc,i)=>`
+    <button class="btn-quick" id="ql-${i}" onclick="selectQuickLoc(${i})">
+      <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      ${loc.label}
+    </button>
+  `).join('');
+}
+
+function selectQuickLoc(i){
+  const loc = QUICK_LOCATIONS[i];
+  if(!loc) return;
+  // Mark active
+  document.querySelectorAll('.btn-quick').forEach((b,j)=>b.classList.toggle('active',j===i));
+  searchInput.value = loc.label;
+  fetchWeather(loc.lat, loc.lon, loc.label);
+}
+
 function loadDefault(){
-  // Default: Bucharest
-  fetchWeather(44.4268,26.1025,'București');
+  renderQuickLocations();
+  // Default: first quick location
+  if(QUICK_LOCATIONS.length){
+    const first = QUICK_LOCATIONS[0];
+    fetchWeather(first.lat, first.lon, first.label);
+    setTimeout(()=>{
+      const btn = document.getElementById('ql-0');
+      if(btn) btn.classList.add('active');
+    }, 100);
+  } else {
+    fetchWeather(44.4268,26.1025,'București');
+  }
 }
 
 window.addEventListener('DOMContentLoaded',()=>{
