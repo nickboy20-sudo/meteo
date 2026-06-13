@@ -621,4 +621,728 @@ async function fetchSuggestions(q){
   if(!API_KEY) return;
   try{
     const r = await fetch(`${GEO}/direct?q=${encodeURIComponent(q)}&limit=8&appid=${API_KEY}`);
-    const data = aw
+    const data = await r.json();
+    if(!Array.isArray(data)||data.length===0){sugBox.classList.remove('open');return}
+    sugBox.innerHTML = data.map(c=>{
+      const parts=[];
+      if(c.state) parts.push(c.state);
+      parts.push(c.country);
+      const coords=`${c.lat.toFixed(2)}°, ${c.lon.toFixed(2)}°`;
+      const subtitle=parts.join(', ');
+      return `
+        <div class="sug-item" data-lat="${c.lat}" data-lon="${c.lon}" data-name="${c.name}">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0;opacity:0.5;margin-top:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+            <span style="font-size:14px">${c.name}</span>
+            <span style="font-size:11px;opacity:0.5">${subtitle} &nbsp;·&nbsp; <span style="font-family:monospace;font-size:10px">${coords}</span></span>
+          </div>
+        </div>
+      `;
+    }).join('');
+    sugBox.classList.add('open');
+    sugBox.querySelectorAll('.sug-item').forEach(el=>{
+      el.addEventListener('click',()=>{
+        searchInput.value = el.dataset.name;
+        sugBox.classList.remove('open');
+        fetchWeather(el.dataset.lat, el.dataset.lon, el.dataset.name);
+      });
+    });
+  }catch(e){console.error(e)}
+}
+
+async function fetchByName(q){
+  if(!API_KEY) return;
+  try{
+    const r = await fetch(`${GEO}/direct?q=${encodeURIComponent(q)}&limit=1&appid=${API_KEY}`);
+    const data = await r.json();
+    if(!data.length){showError('Orașul nu a fost găsit.');return}
+    document.querySelectorAll('.btn-quick').forEach(b=>b.classList.remove('active'));
+    fetchWeather(data[0].lat, data[0].lon, data[0].name);
+  }catch(e){showError('Eroare la geocodare.')}
+}
+
+/* ════════════════════════════════
+   GPS
+════════════════════════════════ */
+document.getElementById('btn-gps').addEventListener('click', ()=>{
+  if(!checkApiKey()) return;
+  const btn = document.getElementById('btn-gps');
+  btn.classList.add('loading');
+  navigator.geolocation.getCurrentPosition(
+    pos=>{
+      btn.classList.remove('loading');
+      fetchWeather(pos.coords.latitude, pos.coords.longitude);
+    },
+    err=>{
+      btn.classList.remove('loading');
+      showError('Locația nu a putut fi determinată. Verifică permisiunile.');
+    }
+  );
+});
+
+/* ════════════════════════════════
+   FETCH WEATHER
+════════════════════════════════ */
+async function fetchWeather(lat, lon, cityHint){
+  if(!checkApiKey()) return;
+  showLoading(true);
+  hideError();
+  try{
+    const [cur, fore] = await Promise.all([
+      fetch(`${BASE}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro`).then(r=>r.json()),
+      fetch(`${BASE}/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro&cnt=80`).then(r=>r.json()),
+    ]);
+    if(cur.cod && cur.cod !== 200){throw new Error(cur.message||'Eroare API')}
+    currentWeatherData = {cur, fore, lat, lon};
+    renderAll(cur, fore);
+  }catch(e){
+    showError('Nu s-au putut obține datele meteo: '+e.message);
+  }finally{
+    showLoading(false);
+  }
+}
+
+/* ════════════════════════════════
+   RENDER
+════════════════════════════════ */
+function renderAll(cur, fore){
+  renderBackground(cur);
+  renderMain(cur);
+  renderHourly(fore);
+  renderRain6h(fore);
+  renderWind(cur);
+  renderWindChart(fore);
+  renderTenDay(fore);
+  renderRain10d(fore);
+  checkRainAlert(fore); // MODIFICAT: Rulează verificarea pentru avertizarea de ploaie
+  showAll();
+}
+
+/* ── BACKGROUND + PARTICLES ── */
+function renderBackground(cur){
+  const code = cur.weather[0].id;
+  const isDay = cur.dt > cur.sys.sunrise && cur.dt < cur.sys.sunset;
+  let cls;
+  if(code >= 200 && code < 300) cls = 'storm';
+  else if(code >= 300 && code < 600) cls = 'rain';
+  else if(code >= 600 && code < 700) cls = 'snow';
+  else if(code >= 700 && code < 800) cls = 'fog';
+  else if(code === 800) cls = 'clear';
+  else cls = 'clouds';
+  const dn = isDay ? 'day' : 'night';
+  document.body.className = `weather-${cls}-${dn}`;
+  makeParticles(cls, dn);
+
+  // Sincronizează fundalul solid al html/body cu tema curentă,
+  // ca să nu apară alb la overscroll/scroll rapid pe Android
+  const bgColors = {
+    'clear-day':'#1565c0','clear-night':'#0a0e27',
+    'clouds-day':'#37474f','clouds-night':'#1c2030',
+    'rain-day':'#1a237e','rain-night':'#0d0d1a',
+    'storm-day':'#1a1a2e','storm-night':'#0a0a0f',
+    'snow-day':'#b3e5fc','snow-night':'#1c2f3f',
+    'fog-day':'#607d8b','fog-night':'#1c2228'
+  };
+  const solid = bgColors[`${cls}-${dn}`] || '#0f2027';
+  document.documentElement.style.background = solid;
+  document.body.style.backgroundColor = solid;
+}
+
+function makeParticles(cls, dn){
+  const p = document.getElementById('particles');
+  p.innerHTML='';
+  if(cls==='rain'||cls==='storm'){
+    for(let i=0;i<60;i++){
+      const d=document.createElement('div');
+      d.className='particle';
+      const size=Math.random()*1.5+0.5;
+      d.style.cssText=`
+        width:${size}px;height:${Math.random()*14+6}px;
+        border-radius:${size}px;
+        background:rgba(130,180,255,0.55);
+        left:${Math.random()*110-5}%;
+        top:-20px;
+        animation:fall ${Math.random()*1.2+0.6}s linear infinite;
+        animation-delay:-${Math.random()*3}s;
+      `;
+      p.appendChild(d);
+    }
+    if(cls==='storm'){
+      const fl=document.createElement('div');
+      fl.style.cssText='position:absolute;inset:0;background:rgba(200,220,255,0.04);animation:lightning 4s infinite';
+      p.appendChild(fl);
+    }
+  } else if(cls==='snow'){
+    for(let i=0;i<50;i++){
+      const d=document.createElement('div');
+      d.className='particle';
+      const size=Math.random()*6+3;
+      d.style.cssText=`
+        width:${size}px;height:${size}px;
+        background:rgba(255,255,255,0.85);
+        border-radius:50%;
+        left:${Math.random()*110-5}%;
+        top:-20px;
+        animation:flake ${Math.random()*4+3}s linear infinite;
+        animation-delay:-${Math.random()*8}s;
+      `;
+      p.appendChild(d);
+    }
+  } else if(dn==='night'&&cls==='clear'){
+    for(let i=0;i<80;i++){
+      const d=document.createElement('div');
+      const size=Math.random()*2+0.5;
+      d.style.cssText=`
+        position:absolute;
+        width:${size}px;height:${size}px;
+        background:#fff;border-radius:50%;
+        left:${Math.random()*100}%;top:${Math.random()*70}%;
+        animation:twinkle ${Math.random()*3+2}s ease-in-out infinite;
+        animation-delay:-${Math.random()*5}s;
+      `;
+      p.appendChild(d);
+    }
+  }
+}
+
+/* ── HELPER UPDATE TIME ── */
+// MODIFICAT: Funcție separată care calculează și formatează corect Data + Ora locației selectate
+function updateTimeDisplay(){
+  if(!currentWeatherData) return;
+  const {cur} = currentWeatherData;
+  const utcMs = Date.now();
+  const offset = cur.timezone * 1000;
+  
+  // Calculare timp local pe baza fusului orar returnat de API
+  const localMs = utcMs + offset + (new Date().getTimezoneOffset() * 60000);
+  const localDate = new Date(localMs);
+  
+  const timeEl = document.getElementById('local-time');
+  if(timeEl) {
+    const options = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+    timeEl.textContent = localDate.toLocaleDateString('ro-RO', options).replace(/\./g, '');
+  }
+}
+
+/* ── MAIN CARD ── */
+function renderMain(cur){
+  document.getElementById('city-name').textContent = cur.name;
+  document.getElementById('country-name').textContent = cur.sys.country;
+  document.getElementById('temp-val').textContent = Math.round(cur.main.temp);
+  document.getElementById('weather-desc').textContent = cur.weather[0].description;
+  document.getElementById('feel-text').textContent = `Se simte ca ${Math.round(cur.main.feels_like)}°C`;
+
+  // MODIFICAT: Afișează imediat data și ora corectă a locației
+  updateTimeDisplay();
+
+  // Stats
+  const hum = cur.main.humidity;
+  const vis = cur.visibility ? (cur.visibility/1000).toFixed(1)+'km' : 'N/A';
+  const pres = cur.main.pressure + ' hPa';
+  const rain1h = cur.rain?.['1h'] ? cur.rain['1h'].toFixed(1)+' mm' : '0 mm';
+  const srRaw = new Date((cur.sys.sunrise+cur.timezone)*1000+new Date().getTimezoneOffset()*60000);
+  const ssRaw = new Date((cur.sys.sunset+cur.timezone)*1000+new Date().getTimezoneOffset()*60000);
+  const sr = srRaw.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'});
+  const ss = ssRaw.toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'});
+
+  document.getElementById('stats-row').innerHTML = [
+    ['💧','Umiditate',hum,'%'],
+    ['👁️','Vizibilitate',vis,''],
+    ['🌡️','Presiune',pres,''],
+    ['🌧️','Ploaie (1h)',rain1h,''],
+    ['🌅','Răsărit',sr,''],
+    ['🌇','Apus',ss,''],
+  ].map(([icon,lbl,val,u])=>`
+    <div class="stat">
+      <div class="stat-label">${icon} ${lbl}</div>
+      <div class="stat-val">${val}<span class="stat-unit">${u}</span></div>
+    </div>
+  `).join('');
+
+  // Icon
+  drawWeatherIcon(document.getElementById('icon-main'), cur.weather[0].id, isDayTime(cur), 120);
+}
+
+function isDayTime(cur){
+  return cur.dt > cur.sys.sunrise && cur.dt < cur.sys.sunset;
+}
+
+/* ── ADAUGAT: VERIFICARE ALERTA PLOAIE ── */
+/* ── MODIFICAT: VERIFICARE ALERTA PLOAIE (1H) ── */
+function checkRainAlert(fore) {
+  const alertEl = document.getElementById('rain-alert');
+  
+  // Verificăm dacă avem date despre vremea curentă și dacă a plouat în ultima oră
+  if (!currentWeatherData || !currentWeatherData.cur) {
+    alertEl.style.display = 'none';
+    return;
+  }
+  
+  const cur = currentWeatherData.cur;
+  const rain1h = cur.rain && cur.rain['1h'] ? cur.rain['1h'] : 0;
+  
+  if (rain1h > 1) {
+    alertEl.innerHTML = `⚠️ <strong>Alertă:</strong> Plouă ${rain1h.toFixed(1)} mm în ultima oră`;
+    alertEl.style.display = 'flex';
+  } else {
+    alertEl.style.display = 'none';
+  }
+}
+/* ── HOURLY ── */
+function renderHourly(fore){
+  const items = fore.list.slice(0,16);
+  document.getElementById('hourly-scroll').innerHTML = items.map((h,i)=>{
+    const isNow = i===0;
+    const t = new Date(h.dt*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'});
+    const rain = (h.rain?.['3h']||0).toFixed(1);
+    const rainStr = +rain>0 ? `💧 ${rain}mm` : '';
+    const svgId = `hicon-${i}`;
+    return `
+      <div class="hour-card ${isNow?'now':''}">
+        <div class="hour-time">${isNow?'Acum':t}</div>
+        <svg class="hour-icon" id="${svgId}" viewBox="0 0 40 40"></svg>
+        <div class="hour-temp">${Math.round(h.main.temp)}°</div>
+        <div class="hour-rain">${rainStr}</div>
+      </div>
+    `;
+  }).join('');
+  // Draw icons after DOM inserted
+  items.forEach((h,i)=>{
+    const svg = document.getElementById(`hicon-${i}`);
+    if(svg) drawWeatherIcon(svg, h.weather[0].id, isHourDay(h.dt), 40);
+  });
+}
+
+function isHourDay(dt){
+  const h = new Date(dt*1000).getHours();
+  return h>=6 && h<20;
+}
+
+/* ── RAIN 6H ── */
+function renderRain6h(fore){
+  const n = fore.list.slice(0,3);
+  const hasRain = n.some(h=>(h.rain?.['3h']||0)>0);
+
+  const card = document.getElementById('rain6h-card');
+  if(!hasRain){card.style.display='none';return}
+  card.style.display='block';
+
+  const labels = n.map(h=>new Date(h.dt*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}));
+  const vals = n.map(h=>+(h.rain?.['3h']||0).toFixed(2));
+
+  if(rain6hChart) rain6hChart.destroy();
+  rain6hChart = new Chart(document.getElementById('rain6h-chart').getContext('2d'),{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{
+        label:'Ploaie (mm)',
+        data:vals,
+        backgroundColor:'rgba(79,195,247,0.5)',
+        borderColor:'rgba(79,195,247,0.9)',
+        borderWidth:2,
+        borderRadius:8,
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.parsed.y} mm`}}},
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'rgba(255,255,255,0.6)',font:{size:11}}},
+        y:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'rgba(255,255,255,0.6)',font:{size:11}},min:0,title:{display:true,text:'mm',color:'rgba(255,255,255,0.4)',font:{size:10}}}
+      }
+    }
+  });
+}
+
+/* ── WIND ── */
+function renderWind(cur){
+  const speed = Math.round(cur.wind.speed * 3.6);
+  const deg = cur.wind.deg || 0;
+  const gust = cur.wind.gust ? Math.round(cur.wind.gust*3.6)+' km/h' : '—';
+  const dir = degToDir(deg);
+
+  document.getElementById('wind-speed-big').textContent = speed;
+  document.getElementById('compass-arrow').style.transform = `translateX(-50%) rotate(${deg}deg)`;
+  document.getElementById('wind-stats').innerHTML = `
+    <div class="wind-stat-row"><span>Direcție</span><span>${dir} (${deg}°)</span></div>
+    <div class="wind-stat-row"><span>Rafale</span><span>${gust}</span></div>
+    <div class="wind-stat-row"><span>Beaufort</span><span>${beaufort(speed)}</span></div>
+  `;
+}
+/* ── WIND CHART 24H ── */
+function renderWindChart(fore) {
+  // Preluăm primele 8 intervale (aprox 24 ore)
+  const n = fore.list.slice(0, 8);
+  if(!n.length) return;
+
+  // Formatăm orele pentru axa X și convertim m/s în km/h pentru axa Y
+  const labels = n.map(h => new Date(h.dt * 1000).toLocaleTimeString('ro-RO', {hour:'2-digit', minute:'2-digit'}));
+  const vals = n.map(h => Math.round((h.wind?.speed || 0) * 3.6));
+
+  if(windChart) windChart.destroy();
+  
+  const ctx = document.getElementById('wind-chart').getContext('2d');
+  
+  // Creăm un gradient pentru efectul de "fill" sub linie
+  const gradient = ctx.createLinearGradient(0, 0, 0, 180);
+  gradient.addColorStop(0, 'rgba(79,195,247,0.4)');
+  gradient.addColorStop(1, 'rgba(79,195,247,0.0)');
+
+  windChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Viteză vânt (km/h)',
+        data: vals,
+        borderColor: '#4fc3f7',
+        backgroundColor: gradient,
+        borderWidth: 2,
+        pointBackgroundColor: '#fff',
+        pointBorderColor: '#4fc3f7',
+        pointRadius: 3,
+        fill: true,
+        tension: 0.4 // Curbură fină a liniei
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => `${c.parsed.y} km/h` } }
+      },
+      scales: {
+        x: { 
+          grid: { color: 'rgba(255,255,255,0.06)' }, 
+          ticks: { color: 'rgba(255,255,255,0.6)', font: { size: 11 } } 
+        },
+        y: { 
+          grid: { color: 'rgba(255,255,255,0.06)' }, 
+          ticks: { color: 'rgba(255,255,255,0.6)', font: { size: 11 } }, 
+          min: 0, 
+          title: { display: true, text: 'km/h', color: 'rgba(255,255,255,0.4)', font: { size: 10 } } 
+        }
+      }
+    }
+  });
+}
+
+function degToDir(d){
+  const dirs=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(d/22.5)%16];
+}
+function beaufort(kmh){
+  if(kmh<1)return'0 - Calm';if(kmh<6)return'1 - Adiere';if(kmh<12)return'2 - Briză ușoară';
+  if(kmh<20)return'3 - Briză slabă';if(kmh<29)return'4 - Briză moderată';if(kmh<39)return'5 - Briză';
+  if(kmh<50)return'6 - Briză tare';if(kmh<62)return'7 - Vânt moderat';if(kmh<75)return'8 - Vânt tare';
+  if(kmh<89)return'9 - Furtună slabă';if(kmh<103)return'10 - Furtună';if(kmh<118)return'11 - Furtună violentă';
+  return'12 - Uragan';
+}
+
+/* ── 10-DAY ── */
+function renderTenDay(fore){
+  const days = {};
+  fore.list.forEach(h=>{
+    const d = new Date(h.dt*1000).toLocaleDateString('ro-RO',{weekday:'short',day:'numeric',month:'short'});
+    if(!days[d]) days[d]={min:Infinity,max:-Infinity,codes:[],rain:0,desc:''};
+    days[d].min=Math.min(days[d].min,h.main.temp_min);
+    days[d].max=Math.max(days[d].max,h.main.temp_max);
+    days[d].rain+=h.rain?.['3h']||0;
+    days[d].codes.push(h.weather[0].id);
+    if(!days[d].desc) days[d].desc=h.weather[0].description;
+  });
+
+  const dayArr = Object.entries(days).slice(0,10);
+  const container = document.getElementById('ten-day-rows');
+  container.innerHTML = dayArr.map(([date,d],i)=>{
+    const svgId = `tdicon-${i}`;
+    return `
+      <div class="day-row">
+        <div class="day-name">${date}</div>
+        <svg class="day-icon" id="${svgId}" viewBox="0 0 28 28"></svg>
+        <div class="day-desc">${d.desc}</div>
+        <div class="day-rain">${d.rain>0?d.rain.toFixed(1)+'mm':''}</div>
+        <div class="day-temps">
+          <span class="day-min">${Math.round(d.min)}°</span>
+          <span class="day-max">${Math.round(d.max)}°</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+  dayArr.forEach(([,d],i)=>{
+    const svg=document.getElementById(`tdicon-${i}`);
+    if(svg) drawWeatherIcon(svg, mostCommon(d.codes), true, 28);
+  });
+}
+
+function mostCommon(arr){
+  const freq={};let max=0,val=arr[0];
+  arr.forEach(v=>{freq[v]=(freq[v]||0)+1;if(freq[v]>max){max=freq[v];val=v}});
+  return val;
+}
+
+/* ── RAIN 10D CHART ── */
+function renderRain10d(fore){
+  const days={};
+  fore.list.forEach(h=>{
+    const d=new Date(h.dt*1000).toLocaleDateString('ro-RO',{day:'numeric',month:'short'});
+    if(!days[d]) days[d]=0;
+    days[d]+=(h.rain?.['3h']||0);
+  });
+  const entries=Object.entries(days).slice(0,10);
+  const labels=entries.map(e=>e[0]);
+  const vals=entries.map(e=>+e[1].toFixed(1));
+
+  const total = vals.reduce((a,b)=>a+b,0);
+  const badge = document.getElementById('rain10d-total');
+  if(badge) badge.textContent = `Total: ${total.toFixed(1)} mm`;
+
+  if(rain10dChart) rain10dChart.destroy();
+  const ctx=document.getElementById('rain10d-chart').getContext('2d');
+  const gradient=ctx.createLinearGradient(0,0,0,200);
+  gradient.addColorStop(0,'rgba(79,195,247,0.65)');
+  gradient.addColorStop(1,'rgba(79,195,247,0.08)');
+
+  const datalabelsPlugin = {
+    id:'topLabels',
+    afterDatasetsDraw(chart){
+      const {ctx,data}=chart;
+      ctx.save();
+      ctx.font='bold 11px Inter,sans-serif';
+      ctx.fillStyle='rgba(232,244,248,0.85)';
+      ctx.textAlign='center';
+      ctx.textBaseline='bottom';
+      chart.getDatasetMeta(0).data.forEach((bar,i)=>{
+        const val=data.datasets[0].data[i];
+        if(val>0){
+          ctx.fillText(val+'mm', bar.x, bar.y-4);
+        }
+      });
+      ctx.restore();
+    }
+  };
+
+  rain10dChart=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{
+        label:'Precipitații (mm)',
+        data:vals,
+        backgroundColor:gradient,
+        borderColor:'rgba(79,195,247,0.9)',
+        borderWidth:2,
+        borderRadius:10,
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      layout:{padding:{top:22}},
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:c=>`${c.parsed.y} mm`}}
+      },
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.55)',font:{size:10}}},
+        y:{grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'rgba(255,255,255,0.55)',font:{size:10}},min:0,title:{display:true,text:'mm',color:'rgba(255,255,255,0.35)',font:{size:10}}}
+      }
+    },
+    plugins:[datalabelsPlugin]
+  });
+}
+
+/* ════════════════════════════════
+   SVG WEATHER ICONS
+════════════════════════════════ */
+function drawWeatherIcon(svg, code, isDay, size){
+  svg.innerHTML='';
+  const s=size||40;
+  svg.setAttribute('viewBox',`0 0 ${s} ${s}`);
+
+  if(code===800){
+    if(isDay) drawSun(svg,s);
+    else drawMoon(svg,s);
+  } else if(code>=801&&code<=804){
+    if(isDay) drawPartlyCloudy(svg,s,code);
+    else drawNightCloudy(svg,s,code);
+  } else if(code>=200&&code<300){
+    drawStorm(svg,s);
+  } else if(code>=300&&code<600){
+    if(code>=500) drawRain(svg,s,code>=502);
+    else drawDrizzle(svg,s);
+  } else if(code>=600&&code<700){
+    drawSnow(svg,s);
+  } else if(code>=700&&code<800){
+    drawFog(svg,s);
+  } else {
+    drawClouds(svg,s);
+  }
+}
+
+function el(tag,attrs,parent){
+  const e=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));
+  if(parent) parent.appendChild(e);
+  return e;
+}
+
+function drawSun(svg,s){
+  const cx=s/2,cy=s/2,r=s*0.22;
+  const g=el('g',{},svg);
+  el('circle',{cx,cy,r,fill:'#FFD54F'},g);
+  for(let i=0;i<8;i++){
+    const a=(i/8)*Math.PI*2;
+    const x1=cx+Math.cos(a)*(r+s*0.04);
+    const y1=cy+Math.sin(a)*(r+s*0.04);
+    const x2=cx+Math.cos(a)*(r+s*0.12);
+    const y2=cy+Math.sin(a)*(r+s*0.12);
+    el('line',{x1,y1,x2,y2,stroke:'#FFD54F','stroke-width':s*0.04,'stroke-linecap':'round'},g);
+  }
+  el('circle',{cx,cy,r:r+s*0.04,fill:'rgba(255,213,79,0.2)'},svg);
+}
+
+function drawMoon(svg,s){
+  const cx=s/2,cy=s/2;
+  el('path',{
+    d:`M${cx*0.9} ${cy*0.5} A${s*0.22} ${s*0.22} 0 1 1 ${cx*0.9} ${cy*1.5} A${s*0.16} ${s*0.16} 0 1 0 ${cx*0.9} ${cy*0.5}`,
+    fill:'#FFF8E1'
+  },svg);
+}
+
+function drawCloud(svg,s,x,y,w,h,color){
+  const path=`
+    M${x+w*0.25} ${y+h}
+    A${w*0.25} ${w*0.25} 0 0 1 ${x+w*0.25} ${y+h*0.5}
+    A${w*0.15} ${w*0.15} 0 0 1 ${x+w*0.45} ${y+h*0.3}
+    A${w*0.18} ${w*0.18} 0 0 1 ${x+w*0.75} ${y+h*0.3}
+    A${w*0.22} ${w*0.22} 0 0 1 ${x+w} ${y+h*0.55}
+    A${w*0.2} ${w*0.2} 0 0 1 ${x+w*0.85} ${y+h}
+    Z
+  `;
+  el('path',{d:path,fill:color||'rgba(200,220,240,0.9)'},svg);
+}
+
+function drawPartlyCloudy(svg,s,code){
+  drawSun(svg,s*0.75);
+  const alpha=code===801?0.7:0.85;
+  drawCloud(svg,s,s*0.2,s*0.35,s*0.65,s*0.4,`rgba(200,225,245,${alpha})`);
+}
+function drawNightCloudy(svg,s,code){
+  drawMoon(svg,s);
+  drawCloud(svg,s,s*0.15,s*0.38,s*0.7,s*0.4,'rgba(150,175,210,0.85)');
+}
+function drawClouds(svg,s){
+  drawCloud(svg,s,s*0.05,s*0.18,s*0.55,s*0.38,'rgba(160,185,210,0.7)');
+  drawCloud(svg,s,s*0.25,s*0.35,s*0.7,s*0.45,'rgba(200,220,240,0.9)');
+}
+
+function drawRain(svg,s,heavy){
+  drawClouds(svg,s*0.85);
+  const drops=heavy?5:3;
+  for(let i=0;i<drops;i++){
+    const x=s*0.18+i*(s*0.65/drops);
+    el('line',{x1:x,y1:s*0.72,x2:x-s*0.04,y2:s*0.88,stroke:'#64B5F6','stroke-width':s*0.04,'stroke-linecap':'round'},svg);
+  }
+}
+function drawDrizzle(svg,s){
+  drawCloud(svg,s,s*0.1,s*0.15,s*0.8,s*0.45,'rgba(180,205,230,0.85)');
+  for(let i=0;i<4;i++){
+    const x=s*0.2+i*(s*0.6/3);
+    el('circle',{cx:x,cy:s*0.78+((i%2)*s*0.06),r:s*0.025,fill:'#90CAF9'},svg);
+  }
+}
+function drawStorm(svg,s){
+  drawCloud(svg,s,s*0.05,s*0.05,s*0.9,s*0.5,'rgba(80,95,130,0.9)');
+  el('polygon',{
+    points:`${s*0.5} ${s*0.55} ${s*0.35} ${s*0.75} ${s*0.48} ${s*0.75} ${s*0.38} ${s*0.95} ${s*0.62} ${s*0.7} ${s*0.52} ${s*0.7}`,
+    fill:'#FFD54F'
+  },svg);
+}
+function drawSnow(svg,s){
+  drawCloud(svg,s,s*0.1,s*0.1,s*0.8,s*0.45,'rgba(220,235,255,0.9)');
+  const pts=[{x:0.2,y:0.75},{x:0.4,y:0.82},{x:0.6,y:0.75},{x:0.8,y:0.82},{x:0.5,y:0.9}];
+  pts.forEach(p=>el('circle',{cx:s*p.x,cy:s*p.y,r:s*0.035,fill:'#E3F2FD'},svg));
+}
+function drawFog(svg,s){
+  for(let i=0;i<4;i++){
+    el('line',{
+      x1:s*0.1,y1:s*(0.25+i*0.18),x2:s*0.9,y2:s*(0.25+i*0.18),
+      stroke:'rgba(180,195,215,0.6)','stroke-width':s*0.05,'stroke-linecap':'round'
+    },svg);
+  }
+}
+
+/* ════════════════════════════════
+   UTILS
+════════════════════════════════ */
+function showAll(){
+  ['main-card','hourly-outer','ten-day-card','rain10d-card','wind-card'].forEach(id=>{
+    document.getElementById(id).style.display='';
+  });
+}
+function showLoading(on){
+  document.getElementById('loading').classList.toggle('hidden',!on);
+}
+function showError(msg){
+  const e=document.getElementById('error-msg');
+  e.textContent=msg;e.style.display='block';
+}
+function hideError(){
+  document.getElementById('error-msg').style.display='none';
+}
+
+/* ════════════════════════════════
+   CLOCK UPDATE (MODIFICAT)
+════════════════════════════════ */
+// Actualizează ceasul local la fiecare 30 de secunde utilizând noua funcție dedicată
+setInterval(()=>{
+  updateTimeDisplay();
+},30000);
+
+/* ════════════════════════════════
+   INIT
+════════════════════════════════ */
+function renderQuickLocations(){
+  const wrap = document.getElementById('quick-locations');
+  if(!wrap || !QUICK_LOCATIONS.length) return;
+  wrap.innerHTML = QUICK_LOCATIONS.map((loc,i)=>`
+    <button class="btn-quick" id="ql-${i}" onclick="selectQuickLoc(${i})">
+      <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      ${loc.label}
+    </button>
+  `).join('');
+}
+
+function selectQuickLoc(i){
+  const loc = QUICK_LOCATIONS[i];
+  if(!loc) return;
+  document.querySelectorAll('.btn-quick').forEach((b,j)=>b.classList.toggle('active',j===i));
+  searchInput.value = loc.label;
+  fetchWeather(loc.lat, loc.lon, loc.label);
+}
+
+function loadDefault(){
+  renderQuickLocations();
+  if(QUICK_LOCATIONS.length){
+    const first = QUICK_LOCATIONS[0];
+    fetchWeather(first.lat, first.lon, first.label);
+    setTimeout(()=>{
+      const btn = document.getElementById('ql-0');
+      if(btn) btn.classList.add('active');
+    }, 100);
+  } else {
+    fetchWeather(44.4268,26.1025,'București');
+  }
+}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  if(!checkApiKey()){
+    return;
+  }
+  loadDefault();
+});
+</script>
+</body>
+</html>
