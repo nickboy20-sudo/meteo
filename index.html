@@ -858,7 +858,7 @@ function checkRainAlert(fore) {
   const rain1h = cur.rain && cur.rain['1h'] ? cur.rain['1h'] : 0;
   
   if (rain1h > 1) {
-    alertEl.innerHTML = `⚠️ <strong>Alertă:</strong> A plouat ${rain1h.toFixed(1)} mm în ultima oră`;
+    alertEl.innerHTML = `⚠️ <strong>Alertă:</strong> Plouă ${rain1h.toFixed(1)} mm în ultima oră`;
     alertEl.style.display = 'flex';
   } else {
     alertEl.style.display = 'none';
