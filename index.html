@@ -168,6 +168,79 @@ body.weather-snow-day .text-dim{color:rgba(26,35,126,0.6)}
 .btn-quick.active{background:rgba(79,195,247,0.25);border-color:rgba(79,195,247,0.6);color:#4fc3f7}
 .btn-quick svg{opacity:0.6}
 
+/* ── FAVORITE / SHARE BUTTONS ── */
+.btn-fav, .btn-share{
+  width:50px;height:50px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.12);
+  backdrop-filter:blur(20px);
+  border:1px solid rgba(255,255,255,0.2);
+  color:var(--text);
+  cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:var(--trans);
+  flex-shrink:0;
+}
+.btn-fav:hover, .btn-share:hover{background:rgba(79,195,247,0.25);border-color:var(--accent);transform:scale(1.05)}
+.btn-fav.active{color:#ffca28;border-color:rgba(255,202,40,0.5);background:rgba(255,202,40,0.15)}
+.btn-fav.active svg{fill:#ffca28}
+.btn-share.copied{color:#69f0ae;border-color:rgba(105,240,174,0.5)}
+
+/* ── TOAST ── */
+.toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:rgba(20,30,40,0.92);
+  backdrop-filter:blur(20px);
+  border:1px solid var(--glass-border);
+  color:var(--text);
+  padding:12px 22px;
+  border-radius:50px;
+  font-size:13px;font-weight:500;
+  z-index:50;
+  opacity:0;pointer-events:none;
+  transition:all 0.3s ease;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── AIR QUALITY CARD ── */
+.aqi-card{
+  background:var(--glass);
+  backdrop-filter:blur(24px);
+  border:1px solid var(--glass-border);
+  border-radius:var(--card-radius);
+  padding:24px;
+  margin-bottom:20px;
+}
+.aqi-top{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:16px;margin-bottom:16px;
+}
+.aqi-badge{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  width:72px;height:72px;border-radius:50%;
+  font-family:'DM Sans',sans-serif;
+  flex-shrink:0;
+  border:3px solid currentColor;
+}
+.aqi-badge .aqi-num{font-size:26px;font-weight:700;line-height:1}
+.aqi-badge .aqi-lbl{font-size:9px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.8;margin-top:2px}
+.aqi-desc{flex:1}
+.aqi-desc-title{font-size:16px;font-weight:600;margin-bottom:4px}
+.aqi-desc-sub{font-size:13px;color:var(--text-dim)}
+.aqi-pollutants{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(70px,1fr));
+  gap:10px;
+}
+.aqi-pollutant{
+  background:rgba(255,255,255,0.06);
+  border-radius:12px;
+  padding:10px;
+  text-align:center;
+}
+.aqi-pollutant-name{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px}
+.aqi-pollutant-val{font-size:15px;font-weight:600;margin-top:4px}
+
 /* ── ERROR ── */
 #error-msg{
   text-align:center;padding:20px;
@@ -371,6 +444,9 @@ body.weather-snow-day .rain-alert { color: #b71c1c; background: rgba(244, 67, 54
   .main-card{padding:20px}
   .weather-main{justify-content:flex-start}
   .weather-icon-main{width:90px;height:90px}
+  .search-wrap{flex-wrap:wrap}
+  .search-box{flex-basis:100%}
+  .btn-gps,.btn-fav,.btn-share{flex:1}
 }
 
 /* ── WIND COMPASS ── */
@@ -478,6 +554,17 @@ body.weather-snow-day .rain-alert { color: #b71c1c; background: rgba(244, 67, 54
         <circle cx="12" cy="12" r="9" stroke-dasharray="2 4"/>
       </svg>
     </button>
+    <button class="btn-fav" id="btn-fav" title="Salvează ca favorit">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+      </svg>
+    </button>
+    <button class="btn-share" id="btn-share" title="Partajează vremea">
+      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+        <path d="M8.59 13.51 15.42 17.49M15.41 6.51 8.59 10.49"/>
+      </svg>
+    </button>
   </div>
 
   <div id="quick-locations" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"></div>
@@ -503,6 +590,21 @@ body.weather-snow-day .rain-alert { color: #b71c1c; background: rgba(244, 67, 54
       <svg class="weather-icon-main" id="icon-main" viewBox="0 0 120 120"></svg>
     </div>
     <div class="stats-row" id="stats-row"></div>
+  </div>
+
+  <div class="aqi-card" id="aqi-card" style="display:none">
+    <div class="section-title">Calitatea aerului</div>
+    <div class="aqi-top">
+      <div class="aqi-badge" id="aqi-badge">
+        <div class="aqi-num" id="aqi-num">—</div>
+        <div class="aqi-lbl">AQI</div>
+      </div>
+      <div class="aqi-desc">
+        <div class="aqi-desc-title" id="aqi-title">—</div>
+        <div class="aqi-desc-sub" id="aqi-sub">—</div>
+      </div>
+    </div>
+    <div class="aqi-pollutants" id="aqi-pollutants"></div>
   </div>
 
   <div class="hourly-outer" id="hourly-outer" style="display:none">
@@ -558,6 +660,8 @@ body.weather-snow-day .rain-alert { color: #b71c1c; background: rgba(244, 67, 54
     <div class="chart-wrap"><canvas id="wind-chart"></canvas></div>
   </div>
 
+  <div class="toast" id="toast"></div>
+
 </div>
 
 <script>
@@ -578,6 +682,8 @@ let rain6hChart = null;
 let rain10dChart = null;
 let windChart = null;
 let currentWeatherData = null;
+let favorites = JSON.parse(localStorage.getItem('weatherFavorites') || '[]');
+let aqiChart = null;
 
 /* ════════════════════════════════
    API KEY CHECK
@@ -688,13 +794,14 @@ async function fetchWeather(lat, lon, cityHint){
   showLoading(true);
   hideError();
   try{
-    const [cur, fore] = await Promise.all([
+    const [cur, fore, aqi] = await Promise.all([
       fetch(`${BASE}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro`).then(r=>r.json()),
       fetch(`${BASE}/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro&cnt=80`).then(r=>r.json()),
+      fetch(`${BASE}/air_pollution?lat=${lat}&lon=${lon}&appid=${API_KEY}`).then(r=>r.json()).catch(()=>null),
     ]);
     if(cur.cod && cur.cod !== 200){throw new Error(cur.message||'Eroare API')}
-    currentWeatherData = {cur, fore, lat, lon};
-    renderAll(cur, fore);
+    currentWeatherData = {cur, fore, aqi, lat, lon};
+    renderAll(cur, fore, aqi);
   }catch(e){
     showError('Nu s-au putut obține datele meteo: '+e.message);
   }finally{
@@ -705,7 +812,7 @@ async function fetchWeather(lat, lon, cityHint){
 /* ════════════════════════════════
    RENDER
 ════════════════════════════════ */
-function renderAll(cur, fore){
+function renderAll(cur, fore, aqi){
   renderBackground(cur);
   renderMain(cur);
   renderHourly(fore);
@@ -714,7 +821,9 @@ function renderAll(cur, fore){
   renderWindChart(fore);
   renderTenDay(fore);
   renderRain10d(fore);
+  renderAQI(aqi);
   checkRainAlert(fore); // MODIFICAT: Rulează verificarea pentru avertizarea de ploaie
+  updateFavButton();
   showAll();
 }
 
@@ -867,7 +976,49 @@ function isDayTime(cur){
   return cur.dt > cur.sys.sunrise && cur.dt < cur.sys.sunset;
 }
 
-/* ── ADAUGAT: VERIFICARE ALERTA PLOAIE ── */
+/* ── CALITATE AER (AQI) ── */
+function renderAQI(aqi){
+  const card = document.getElementById('aqi-card');
+  if(!aqi || !aqi.list || !aqi.list[0]){
+    card.style.display='none';
+    return;
+  }
+  card.style.display='block';
+  const item = aqi.list[0];
+  const idx = item.main.aqi; // 1-5 scale (OpenWeatherMap)
+  const levels = {
+    1:{label:'Bun',          color:'#69f0ae', sub:'Calitatea aerului este satisfăcătoare, riscul este minim.'},
+    2:{label:'Acceptabil',   color:'#a3e635', sub:'Calitate acceptabilă a aerului.'},
+    3:{label:'Moderat',      color:'#fbc02d', sub:'Persoanele sensibile pot resimți efecte minore.'},
+    4:{label:'Slab',         color:'#ff8a65', sub:'Posibile efecte asupra sănătății pentru toți, mai accentuate la grupele sensibile.'},
+    5:{label:'Foarte slab',  color:'#ef5350', sub:'Risc crescut pentru sănătate — evită efortul prelungit afară.'},
+  };
+  const lv = levels[idx] || levels[3];
+
+  const badge = document.getElementById('aqi-badge');
+  badge.style.color = lv.color;
+  document.getElementById('aqi-num').textContent = idx;
+  document.getElementById('aqi-title').textContent = lv.label;
+  document.getElementById('aqi-sub').textContent = lv.sub;
+
+  const c = item.components || {};
+  const pollutants = [
+    ['PM2.5', c.pm2_5, 'µg/m³'],
+    ['PM10',  c.pm10,  'µg/m³'],
+    ['O₃',    c.o3,    'µg/m³'],
+    ['NO₂',   c.no2,   'µg/m³'],
+    ['SO₂',   c.so2,   'µg/m³'],
+    ['CO',    c.co,    'µg/m³'],
+  ];
+  document.getElementById('aqi-pollutants').innerHTML = pollutants.map(([name,val,u])=>`
+    <div class="aqi-pollutant">
+      <div class="aqi-pollutant-name">${name}</div>
+      <div class="aqi-pollutant-val">${val!=null?Math.round(val):'—'}</div>
+    </div>
+  `).join('');
+}
+
+
 /* ── MODIFICAT: VERIFICARE ALERTA PLOAIE (1H) ── */
 function checkRainAlert(fore) {
   const alertEl = document.getElementById('rain-alert');
@@ -1306,17 +1457,20 @@ setInterval(()=>{
 ════════════════════════════════ */
 function renderQuickLocations(){
   const wrap = document.getElementById('quick-locations');
-  if(!wrap || !QUICK_LOCATIONS.length) return;
-  wrap.innerHTML = QUICK_LOCATIONS.map((loc,i)=>`
-    <button class="btn-quick" id="ql-${i}" onclick="selectQuickLoc(${i})">
+  if(!wrap) return;
+  const all = [...QUICK_LOCATIONS, ...favorites];
+  if(!all.length) return;
+  wrap.innerHTML = all.map((loc,i)=>`
+    <button class="btn-quick" data-lat="${loc.lat}" data-lon="${loc.lon}" onclick="selectQuickLoc(${i})">
       <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-      ${loc.label}
+      ${loc.label}${i>=QUICK_LOCATIONS.length?' ★':''}
     </button>
   `).join('');
 }
 
 function selectQuickLoc(i){
-  const loc = QUICK_LOCATIONS[i];
+  const all = [...QUICK_LOCATIONS, ...favorites];
+  const loc = all[i];
   if(!loc) return;
   document.querySelectorAll('.btn-quick').forEach((b,j)=>b.classList.toggle('active',j===i));
   searchInput.value = loc.label;
@@ -1329,7 +1483,7 @@ function loadDefault(){
     const first = QUICK_LOCATIONS[0];
     fetchWeather(first.lat, first.lon, first.label);
     setTimeout(()=>{
-      const btn = document.getElementById('ql-0');
+      const btn = document.querySelector('.btn-quick');
       if(btn) btn.classList.add('active');
     }, 100);
   } else {
@@ -1337,10 +1491,79 @@ function loadDefault(){
   }
 }
 
+/* ════════════════════════════════
+   FAVORITE LOCATIONS
+════════════════════════════════ */
+function isFavorite(lat, lon){
+  return favorites.some(f=>Math.abs(f.lat-lat)<0.01 && Math.abs(f.lon-lon)<0.01);
+}
+
+function updateFavButton(){
+  const btn = document.getElementById('btn-fav');
+  if(!btn || !currentWeatherData) return;
+  const {lat, lon} = currentWeatherData;
+  btn.classList.toggle('active', isFavorite(lat, lon));
+}
+
+function toggleFavorite(){
+  if(!currentWeatherData) return;
+  const {cur, lat, lon} = currentWeatherData;
+  const label = cur.name;
+  if(isFavorite(lat, lon)){
+    favorites = favorites.filter(f=>!(Math.abs(f.lat-lat)<0.01 && Math.abs(f.lon-lon)<0.01));
+    showToast(`${label} eliminat din favorite`);
+  } else {
+    favorites.push({label, lat, lon});
+    showToast(`${label} salvat la favorite`);
+  }
+  localStorage.setItem('weatherFavorites', JSON.stringify(favorites));
+  renderQuickLocations();
+  updateFavButton();
+}
+
+/* ════════════════════════════════
+   SHARE / COPY VREME
+════════════════════════════════ */
+function shareWeather(){
+  if(!currentWeatherData) return;
+  const {cur} = currentWeatherData;
+  const text = `Vremea în ${cur.name}: ${Math.round(cur.main.temp)}°C, ${cur.weather[0].description}, se simte ca ${Math.round(cur.main.feels_like)}°C.`;
+  const btn = document.getElementById('btn-share');
+  const doToast = ()=>{
+    btn.classList.add('copied');
+    showToast('Copiat în clipboard');
+    setTimeout(()=>btn.classList.remove('copied'), 1500);
+  };
+  if(navigator.share){
+    navigator.share({text}).catch(()=>{
+      navigator.clipboard?.writeText(text).then(doToast);
+    });
+  } else if(navigator.clipboard){
+    navigator.clipboard.writeText(text).then(doToast);
+  } else {
+    showToast(text);
+  }
+}
+
+/* ════════════════════════════════
+   TOAST
+════════════════════════════════ */
+let toastTimer = null;
+function showToast(msg){
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
 window.addEventListener('DOMContentLoaded',()=>{
   if(!checkApiKey()){
     return;
   }
+  document.getElementById('btn-fav').addEventListener('click', toggleFavorite);
+  document.getElementById('btn-share').addEventListener('click', shareWeather);
   loadDefault();
 });
 </script>
