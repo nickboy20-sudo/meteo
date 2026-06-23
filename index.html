@@ -177,6 +177,22 @@ body.weather-fog-night #bg{background:linear-gradient(160deg,#1c2228 0%,#2c3440 
 .score-mid{background:rgba(255,202,40,0.15);color:#ffd54f}
 .score-bad{background:rgba(255,138,128,0.15);color:#ffab91}
 
+/* ALERTS BAND */
+#alerts-band{margin-bottom:14px}
+.alert-item{display:flex;align-items:flex-start;gap:10px;padding:11px 15px;border-radius:14px;margin-bottom:8px;font-size:13.5px;font-weight:500;animation:alertIn .35s ease}
+@keyframes alertIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.alert-item:last-child{margin-bottom:0}
+.alert-severe{background:rgba(244,67,54,0.18);border:1px solid rgba(244,67,54,0.45);color:#ffcdd2}
+.alert-warn{background:rgba(255,152,0,0.16);border:1px solid rgba(255,152,0,0.40);color:#ffe0b2}
+.alert-info{background:rgba(79,195,247,0.13);border:1px solid rgba(79,195,247,0.35);color:#b3e5fc}
+.alert-icon{font-size:16px;flex-shrink:0;margin-top:1px}
+.alert-text b{display:block;font-size:14px;margin-bottom:2px}
+.alert-text span{font-size:12.5px;opacity:.82}
+
+/* UV BAR */
+.uv-bar-wrap{height:6px;border-radius:3px;background:linear-gradient(to right,#69f0ae,#ffee58,#ffa726,#ef5350,#8e24aa);margin-top:4px;position:relative}
+.uv-bar-dot{position:absolute;top:-3px;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid rgba(0,0,0,.3);transform:translateX(-50%);transition:left .5s}
+
 /* MINIMAL MODE - FIXED */
 body.minimal .hide-in-minimal{display:none !important}
 .minimal-hint{font-size:11px;color:var(--text-dim);margin-left:8px;opacity:0;transition:opacity .3s}
@@ -245,6 +261,9 @@ body.minimal .minimal-hint{opacity:1}
 
   <div id="quick-locations" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px"></div>
   <div id="error-msg"></div>
+
+  <!-- ALERTS BAND -->
+  <div id="alerts-band"></div>
 
   <!-- MAIN -->
   <div class="card main-card" id="main-card" style="display:none">
@@ -363,12 +382,15 @@ const QUICK_LOCATIONS = [
   { label: 'București', lat: 44.4268, lon: 26.1025 },
   { label: 'Bolintin Vale', lat: 44.44889, lon: 25.75778 },
 ];
-const BASE = 'https://api.openweathermap.org/data/2.5';
-const GEO  = 'https://api.openweathermap.org/geo/1.0';
+const BASE  = 'https://api.openweathermap.org/data/2.5';
+const BASE3 = 'https://api.openweathermap.org/data/3.0';
+const GEO   = 'https://api.openweathermap.org/geo/1.0';
 
 let rain6hChart=null, rain10dChart=null, windChart=null;
 let currentWeatherData=null;
 let favorites = JSON.parse(localStorage.getItem('weatherFavorites') || '[]');
+// store last pressure to compute trend
+let lastPressure = null;
 
 function checkApiKey(){
   if(!API_KEY){showError('Lipsește cheia API.');document.getElementById('loading').classList.add('hidden');return false}
@@ -435,33 +457,34 @@ async function fetchWeather(lat, lon){
   if(!checkApiKey()) return;
   showLoading(true); hideError();
   try{
-    const [cur, fore, aqi] = await Promise.all([
+    const [cur, fore, aqi, onecall] = await Promise.all([
       fetch(`${BASE}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro`).then(r=>r.json()),
       fetch(`${BASE}/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro`).then(r=>r.json()),
       fetch(`${BASE}/air_pollution?lat=${lat}&lon=${lon}&appid=${API_KEY}`).then(r=>r.json()).catch(()=>null),
+      fetch(`${BASE3}/onecall?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro&exclude=minutely`).then(r=>r.json()).catch(()=>null),
     ]);
     if(cur.cod && cur.cod !== 200) throw new Error(cur.message||'Eroare API');
-    currentWeatherData = {cur, fore, aqi, lat:+lat, lon:+lon};
-    renderAll(cur, fore, aqi);
+    currentWeatherData = {cur, fore, aqi, onecall, lat:+lat, lon:+lon};
+    renderAll(cur, fore, aqi, onecall);
   }catch(e){ showError('Nu s-au putut obține datele: '+e.message) }
   finally{ showLoading(false) }
 }
 
 /* RENDER */
-function renderAll(cur, fore, aqi){
+function renderAll(cur, fore, aqi, onecall){
   renderBackground(cur);
-  renderMain(cur);
+  renderMain(cur, onecall);
   renderSunArc(cur);
   renderOutfit(cur, fore);
   renderActivities(cur, fore);
-  renderHourly(fore);
-  renderRain6h(fore);
+  renderHourly(fore, onecall);
+  renderRain6h(fore, onecall);
   renderWind(cur);
   renderWindChart(fore);
   renderTenDay(fore);
   renderRain10d(fore);
   renderAQI(aqi);
-  checkRainAlert(fore);
+  renderAlerts(cur, fore, aqi, onecall);
   updateFavButton();
   showAll();
 }
@@ -496,7 +519,7 @@ function updateTimeDisplay(){
 }
 setInterval(updateTimeDisplay, 30000);
 
-function renderMain(cur){
+function renderMain(cur, onecall){
   document.getElementById('city-name').textContent = cur.name;
   document.getElementById('country-name').textContent = cur.sys.country;
   document.getElementById('temp-val').textContent = Math.round(cur.main.temp);
@@ -505,20 +528,43 @@ function renderMain(cur){
   updateTimeDisplay();
   const hum = cur.main.humidity;
   const vis = cur.visibility ? (cur.visibility/1000).toFixed(1)+' km' : 'N/A';
-  const pres = cur.main.pressure + ' hPa';
-  const rain1h = cur.rain?.['1h'] ? cur.rain['1h'].toFixed(1)+' mm' : '0 mm';
+  // Pressure with trend
+  const pres = cur.main.pressure;
+  let presTrend = '';
+  if(lastPressure !== null){
+    const diff = pres - lastPressure;
+    if(diff > 1) presTrend = ' ↑';
+    else if(diff < -1) presTrend = ' ↓';
+    else presTrend = ' →';
+  }
+  lastPressure = pres;
+  const presStr = pres + presTrend + ' hPa';
+  // Precipitation: prefer 1h from current, else from onecall
+  let rain1h = cur.rain?.['1h'] ?? cur.rain?.['3h'] ?? null;
+  if(rain1h === null && onecall?.current?.rain) rain1h = onecall.current.rain['1h'] ?? null;
+  const rainStr = rain1h !== null ? rain1h.toFixed(1)+' mm' : '0 mm';
   const sr = new Date((cur.sys.sunrise+cur.timezone)*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',timeZone:'UTC'});
   const ss = new Date((cur.sys.sunset+cur.timezone)*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit',timeZone:'UTC'});
+  // UV Index from One Call or current
+  const uvi = onecall?.current?.uvi ?? null;
+  const uviLabel = uvi === null ? null : uvLabel(uvi);
+  const uvHtml = uvi !== null ? `
+    <div class="stat">
+      <div class="stat-label">☀️ Indice UV</div>
+      <div class="stat-val">${uvi.toFixed(1)} <span class="stat-unit">${uviLabel}</span></div>
+      <div class="uv-bar-wrap"><div class="uv-bar-dot" style="left:${Math.min(100,uvi/11*100)}%"></div></div>
+    </div>` : '';
   document.getElementById('stats-row').innerHTML = [
     ['💧','Umiditate',hum,'%'],
     ['👁️','Vizibilitate',vis,''],
-    ['🌡️','Presiune',pres,''],
-    ['🌧️','Ploaie',rain1h,''],
+    ['🌡️','Presiune',presStr,''],
+    ['🌧️','Precipitații',rainStr,''],
     ['🌅','Răsărit',sr,''],
     ['🌇','Apus',ss,''],
-  ].map(([icon,lbl,val,u])=>`<div class="stat"><div class="stat-label">${icon} ${lbl}</div><div class="stat-val">${val}<span class="stat-unit">${u}</span></div></div>`).join('');
+  ].map(([icon,lbl,val,u])=>`<div class="stat"><div class="stat-label">${icon} ${lbl}</div><div class="stat-val">${val}<span class="stat-unit">${u}</span></div></div>`).join('') + uvHtml;
   drawWeatherIcon(document.getElementById('icon-main'), cur.weather[0].id, isDayTime(cur), 120);
 }
+function uvLabel(uv){ if(uv<3) return 'Scăzut'; if(uv<6) return 'Moderat'; if(uv<8) return 'Ridicat'; if(uv<11) return 'F. Ridicat'; return 'Extrem'; }
 function isDayTime(cur){ return cur.dt > cur.sys.sunrise && cur.dt < cur.sys.sunset }
 
 /* SUN ARC - FIXED & RESPONSIVE */
@@ -630,15 +676,30 @@ function renderAQI(aqi){
 }
 
 /* HOURLY */
-function renderHourly(fore){
-  const items = fore.list.slice(0,16);
+function renderHourly(fore, onecall){
+  // Prefer One Call hourly (true 1h intervals, more accurate) over 3h forecast
+  let items;
+  if(onecall?.hourly && onecall.hourly.length > 0){
+    items = onecall.hourly.slice(0,16).map(h=>({
+      dt: h.dt,
+      main: { temp: h.temp },
+      weather: h.weather,
+      rain: h.rain ? { '1h': h.rain['1h'] } : undefined,
+      snow: h.snow ? { '1h': h.snow['1h'] } : undefined,
+      _from1call: true,
+    }));
+  } else {
+    items = fore.list.slice(0,16);
+  }
   document.getElementById('hourly-scroll').innerHTML = items.map((h,i)=>{
     const t = new Date(h.dt*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'});
-    const rain = (h.rain?.['3h']||0).toFixed(1);
+    const rain = h._from1call
+      ? ((h.rain?.['1h']||0) + (h.snow?.['1h']||0)).toFixed(1)
+      : (h.rain?.['3h']||0).toFixed(1);
     return `<div class="hour-card ${i===0?'now':''}">
       <div class="hour-time">${i===0?'Acum':t}</div>
       <svg class="hour-icon" id="hicon-${i}" viewBox="0 0 40 40"></svg>
-      <div class="hour-temp">${Math.round(h.main.temp)}°</div>
+      <div class="hour-temp">${Math.round(h.main?.temp ?? h.temp)}°</div>
       <div class="hour-rain">${+rain>0?`💧 ${rain}mm`:''}</div>
     </div>`;
   }).join('');
@@ -646,14 +707,22 @@ function renderHourly(fore){
 }
 
 /* RAIN 6H */
-function renderRain6h(fore){
-  const n = fore.list.slice(0,3);
-  const hasRain = n.some(h=>(h.rain?.['3h']||0)>0);
+function renderRain6h(fore, onecall){
+  let labels, vals;
+  if(onecall?.hourly && onecall.hourly.length > 0){
+    // Use true per-hour data from One Call (next 9 hours)
+    const n = onecall.hourly.slice(0,9);
+    vals = n.map(h=>+((h.rain?.['1h']||0)+(h.snow?.['1h']||0)).toFixed(2));
+    labels = n.map(h=>new Date(h.dt*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}));
+  } else {
+    const n = fore.list.slice(0,3);
+    vals = n.map(h=>+(h.rain?.['3h']||0).toFixed(2));
+    labels = n.map(h=>new Date(h.dt*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}));
+  }
+  const hasRain = vals.some(v=>v>0);
   const card=document.getElementById('rain6h-card');
   if(!hasRain){card.style.display='none';return}
   card.style.display='';
-  const labels=n.map(h=>new Date(h.dt*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}));
-  const vals=n.map(h=>+(h.rain?.['3h']||0).toFixed(2));
   if(rain6hChart) rain6hChart.destroy();
   rain6hChart = new Chart(document.getElementById('rain6h-chart'),{
     type:'bar',
@@ -723,24 +792,125 @@ function renderRain10d(fore){
   rain10dChart=new Chart(ctx,{type:'bar',data:{labels,datasets:[{data:vals,backgroundColor:gradient,borderColor:'rgba(79,195,247,0.9)',borderWidth:2,borderRadius:8}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(255,255,255,0.05)'}},y:{grid:{color:'rgba(255,255,255,0.05)'}}}}});
 }
 
-/* RAIN ALERT */
-function checkRainAlert(fore){
-  const alertEl=document.getElementById('rain-alert');
-  if(!currentWeatherData){alertEl.style.display='none';return}
-  const next = fore.list.slice(0,3);
-  const rainNext = next.reduce((a,h)=>a+(h.rain?.['3h']||0),0);
-  const code = currentWeatherData.cur.weather[0].id;
-  if(rainNext > 1){
-    alertEl.className='rain-alert';
-    alertEl.innerHTML = `☔ <b>Ia umbrela!</b> ${rainNext.toFixed(1)} mm în următoarele 9 ore`;
-    alertEl.style.display='flex';
-  } else if(code===800 && currentWeatherData.cur.main.temp > 20){
-    alertEl.className='rain-alert info';
-    alertEl.innerHTML = `😎 Cer senin — nu uita ochelarii de soare`;
-    alertEl.style.display='flex';
-  } else {
-    alertEl.style.display='none';
+/* ALERTS SYSTEM */
+function renderAlerts(cur, fore, aqi, onecall){
+  const band = document.getElementById('alerts-band');
+  const alerts = []; // {severity:'severe'|'warn'|'info', icon, title, body}
+
+  // 1. Official OWM alerts from One Call
+  if(onecall?.alerts && onecall.alerts.length > 0){
+    onecall.alerts.forEach(a=>{
+      const ev = a.event || 'Alertă meteo';
+      const desc = (a.description || '').split('\n').slice(0,2).join(' ').slice(0,140);
+      // severity by event keywords
+      const sev = /furtun|tornado|uragan|ciclon|extrem|roșu|red/i.test(ev) ? 'severe'
+                : /atenționare|portocaliu|orange|avertizare/i.test(ev) ? 'warn' : 'warn';
+      alerts.push({severity:sev, icon:'⚠️', title:ev, body:desc});
+    });
   }
+
+  const code = cur.weather[0].id;
+  const temp = cur.main.temp;
+  const feelsLike = cur.main.feels_like;
+  const wind = cur.wind.speed * 3.6;
+  const gust = (cur.wind.gust||cur.wind.speed) * 3.6;
+  const vis = (cur.visibility||10000) / 1000;
+  const uvi = onecall?.current?.uvi ?? null;
+  const aqiVal = aqi?.list?.[0]?.main?.aqi ?? null;
+
+  // 2. Caniculă
+  if(temp >= 36 || feelsLike >= 38){
+    alerts.push({severity:'severe', icon:'🌡️', title:'Caniculă extremă', body:`Temperatura de ${Math.round(temp)}°C (resimțită ${Math.round(feelsLike)}°C) este periculoasă. Hidratează-te și evită expunerea.`});
+  } else if(temp >= 32 || feelsLike >= 35){
+    alerts.push({severity:'warn', icon:'🌡️', title:'Căldură intensă', body:`${Math.round(temp)}°C (resimțit ${Math.round(feelsLike)}°C). Limitează activitățile fizice în exterior.`});
+  }
+
+  // 3. Ger
+  if(temp <= -15 || feelsLike <= -20){
+    alerts.push({severity:'severe', icon:'🥶', title:'Ger extrem', body:`${Math.round(temp)}°C (resimțit ${Math.round(feelsLike)}°C). Risc de degerături. Evită ieșirile prelungite.`});
+  } else if(temp <= -5 || feelsLike <= -10){
+    alerts.push({severity:'warn', icon:'🧊', title:'Temperaturi scăzute', body:`${Math.round(temp)}°C (resimțit ${Math.round(feelsLike)}°C). Îmbracă-te în straturi și protejează-ți extremitățile.`});
+  } else if(temp <= 2 && temp > 0 && code >= 500 && code < 600){
+    alerts.push({severity:'warn', icon:'🌧️', title:'Risc de polei', body:`Ploaie la temperaturi aproape de 0°C — posibil polei pe carosabil.`});
+  }
+
+  // 4. Furtună / ploaie torențială
+  if(code >= 200 && code < 300){
+    const heavy = code >= 212;
+    alerts.push({severity:heavy?'severe':'warn', icon:'⛈️', title:heavy?'Furtună violentă':'Furtună cu descărcări electrice', body:'Evită spațiile deschise, copacii izolați și activitățile în exterior.'});
+  } else if(code >= 500 && code < 600){
+    // Use measured precipitation only — never trigger alert on 0mm
+    const rain9h = fore.list.slice(0,3).reduce((a,h)=>a+(h.rain?.['3h']||0),0);
+    const rain1hCur = cur.rain?.['1h'] ?? cur.rain?.['3h'] ?? null;
+    const rain1hOC  = onecall?.hourly?.[0]?.rain?.['1h'] ?? null;
+    const rain1h = rain1hOC ?? rain1hCur ?? (rain9h > 0 ? rain9h/9 : 0);
+    if(rain1h >= 10){
+      alerts.push({severity:'severe', icon:'🌊', title:'Ploaie torențială', body:`Intensitate ~${rain1h.toFixed(1)} mm/h. Risc de inundații locale.`});
+    } else if(rain9h > 0.5 || rain1h > 0.1){
+      const qty = rain9h > 0 ? `~${rain9h.toFixed(1)} mm` : `~${rain1h.toFixed(1)} mm/h`;
+      alerts.push({severity:'info', icon:'☔', title:`Ia umbrela! ${qty} în următoarele ore`, body:''});
+    }
+  }
+
+  // 5. Ninsoare / viscol
+  if(code >= 600 && code < 700){
+    const heavy = code === 602 || code === 622 || code === 621;
+    if(heavy || wind > 30){
+      alerts.push({severity:'severe', icon:'🌨️', title:'Viscol / ninsoare abundentă', body:'Evită deplasările. Pericol de acumulări de zăpadă și vizibilitate redusă.'});
+    } else {
+      alerts.push({severity:'warn', icon:'❄️', title:'Ninsoare', body:'Drum precaut. Adaptat viteza la condițiile de iarnă.'});
+    }
+  }
+
+  // 6. Vânt puternic
+  if(gust >= 90){
+    alerts.push({severity:'severe', icon:'💨', title:`Vânt extrem — rafale ${Math.round(gust)} km/h`, body:'Risc de distrugeri materiale. Evită deplasările cu vehicule înalte.'});
+  } else if(gust >= 60 || wind >= 50){
+    alerts.push({severity:'warn', icon:'💨', title:`Vânt puternic — rafale ${Math.round(gust)} km/h`, body:'Atenție la obiecte nesigurate. Conducere defensivă.'});
+  } else if(wind >= 35){
+    alerts.push({severity:'info', icon:'🌬️', title:`Vânt moderat-tare — ${Math.round(wind)} km/h`, body:''});
+  }
+
+  // 7. Vizibilitate redusă (ceață)
+  if(vis <= 0.2){
+    alerts.push({severity:'severe', icon:'🌫️', title:'Ceață densă — vizibilitate sub 200m', body:'Evită conducerea. Dacă ești în trafic, folosește luminile de ceață.'});
+  } else if(vis <= 1){
+    alerts.push({severity:'warn', icon:'🌫️', title:`Ceață — vizibilitate ${(vis*1000).toFixed(0)}m`, body:'Reduceți viteza și mențineți distanța de siguranță.'});
+  }
+
+  // 8. UV Index
+  if(uvi !== null){
+    if(uvi >= 11){
+      alerts.push({severity:'severe', icon:'☀️', title:`UV Extrem (${uvi.toFixed(1)})`, body:'Protecție maximă: stai la umbră între 10–16, SPF 50+, ochelari, pălărie.'});
+    } else if(uvi >= 8){
+      alerts.push({severity:'warn', icon:'☀️', title:`UV Foarte ridicat (${uvi.toFixed(1)})`, body:'Aplică cremă SPF 30+, limitează expunerea directă la soare.'});
+    } else if(uvi >= 6){
+      alerts.push({severity:'info', icon:'🕶️', title:`Indice UV ridicat (${uvi.toFixed(1)}) — folosiți protecție solară`, body:''});
+    }
+  }
+
+  // 9. AQI
+  if(aqiVal >= 5){
+    alerts.push({severity:'severe', icon:'😷', title:'Calitate aer VERY POOR — evitați efortul afară', body:'Persoanele cu afecțiuni respiratorii sau cardiace să rămână în interior.'});
+  } else if(aqiVal >= 4){
+    alerts.push({severity:'warn', icon:'😷', title:'Calitate aer slabă', body:'Limitați activitățile fizice în exterior, în special cele de lungă durată.'});
+  }
+
+  // 10. Cer senin info
+  if(alerts.length === 0 && code === 800 && temp > 15){
+    alerts.push({severity:'info', icon:'😎', title:'Cer senin și condiții bune', body:'Zi perfectă pentru activități în aer liber!'});
+  }
+
+  // Render
+  band.innerHTML = alerts.map(a=>`
+    <div class="alert-item alert-${a.severity}">
+      <div class="alert-icon">${a.icon}</div>
+      <div class="alert-text"><b>${a.title}</b>${a.body?`<span>${a.body}</span>`:''}</div>
+    </div>`).join('');
+
+  // Hide the inline rain-alert — alerts band above already covers this
+  const rainAlertEl = document.getElementById('rain-alert');
+  if(rainAlertEl) rainAlertEl.style.display='none';
 }
 
 
