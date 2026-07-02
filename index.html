@@ -567,6 +567,33 @@ const QUICK_LOCATIONS = [
 const BASE  = 'https://api.openweathermap.org/data/2.5';
 const BASE3 = 'https://api.openweathermap.org/data/3.0';
 const GEO   = 'https://api.openweathermap.org/geo/1.0';
+const NOMINATIM = 'https://nominatim.openstreetmap.org';
+
+function esc(s){ return String(s??'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+/* Build a "Comună/Oraș, Județ, Țară" style breadcrumb from a Nominatim address object */
+function buildLocationBreadcrumb(addr, opts={}){
+  if(!addr) return '';
+  const prefixed = (val, word) => !val ? null : (new RegExp('^'+word,'i').test(val) ? val : `${word} ${val}`);
+  const settlement = addr.village || addr.town || addr.city || addr.hamlet || addr.suburb || null;
+  const comuna = prefixed(addr.municipality || null, 'Comuna');
+  const county = prefixed(addr.county || addr.state || null, 'Județul');
+  const country = addr.country || null;
+  const parts = [];
+  if(!opts.skipSettlement && settlement) parts.push(settlement);
+  if(comuna) parts.push(comuna);
+  if(county) parts.push(county);
+  if(country) parts.push(country);
+  return parts.join(', ');
+}
+
+async function reverseGeocode(lat, lon){
+  try{
+    const r = await fetch(`${NOMINATIM}/reverse?lat=${lat}&lon=${lon}&format=jsonv2&addressdetails=1&accept-language=ro&zoom=14`);
+    const data = await r.json();
+    return (data && data.address) ? data.address : null;
+  }catch(e){ return null; }
+}
 
 let rain6hChart=null, rain10dChart=null, windChart=null;
 let currentWeatherData=null;
@@ -594,31 +621,41 @@ searchInput.addEventListener('keydown', e=>{
 });
 document.addEventListener('click', e=>{ if(!e.target.closest('.search-box')) sugBox.classList.remove('open') });
 
+let sugCache = {};
 async function fetchSuggestions(q){
   try{
-    const r = await fetch(`${GEO}/direct?q=${encodeURIComponent(q)}&limit=8&appid=${API_KEY}`);
+    const r = await fetch(`${NOMINATIM}/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&limit=8&accept-language=ro`);
     const data = await r.json();
     if(!Array.isArray(data)||!data.length){sugBox.classList.remove('open');return}
-    sugBox.innerHTML = data.map(c=>`
-      <div class="sug-item" data-lat="${c.lat}" data-lon="${c.lon}" data-name="${c.name}">
+    sugCache = {};
+    sugBox.innerHTML = data.map((c,i)=>{
+      const addr = c.address || {};
+      const settlement = addr.village || addr.town || addr.city || addr.hamlet || addr.suburb || (c.display_name||'').split(',')[0];
+      const detail = buildLocationBreadcrumb(addr, {skipSettlement:true}) || addr.country || '';
+      sugCache[i] = {name:settlement, address:addr};
+      return `
+      <div class="sug-item" data-idx="${i}" data-lat="${c.lat}" data-lon="${c.lon}">
         <span>📍</span>
-        <div><div>${c.name}</div><div style="font-size:11px;opacity:.6">${[c.state,c.country].filter(Boolean).join(', ')}</div></div>
-      </div>`).join('');
+        <div><div>${esc(settlement)}</div><div style="font-size:11px;opacity:.6">${esc(detail)}</div></div>
+      </div>`;
+    }).join('');
     sugBox.classList.add('open');
     sugBox.querySelectorAll('.sug-item').forEach(el=>{
       el.addEventListener('click',()=>{
-        searchInput.value=el.dataset.name; sugBox.classList.remove('open');
-        fetchWeather(el.dataset.lat, el.dataset.lon);
+        const item = sugCache[el.dataset.idx];
+        searchInput.value = item ? item.name : '';
+        sugBox.classList.remove('open');
+        fetchWeather(el.dataset.lat, el.dataset.lon, item ? item.address : null);
       })
     });
   }catch(e){}
 }
 async function fetchByName(q){
   try{
-    const r = await fetch(`${GEO}/direct?q=${encodeURIComponent(q)}&limit=1&appid=${API_KEY}`);
+    const r = await fetch(`${NOMINATIM}/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&limit=1&accept-language=ro`);
     const data = await r.json();
     if(!data.length){showError('Orașul nu a fost găsit.');return}
-    fetchWeather(data[0].lat, data[0].lon);
+    fetchWeather(data[0].lat, data[0].lon, data[0].address || null);
   }catch(e){showError('Eroare la geocodare.')}
 }
 
@@ -635,18 +672,19 @@ document.getElementById('btn-gps').addEventListener('click', ()=>{
 });
 
 /* FETCH */
-async function fetchWeather(lat, lon){
+async function fetchWeather(lat, lon, addressHint){
   if(!checkApiKey()) return;
   showLoading(true); hideError();
   try{
-    const [cur, fore, aqi, onecall] = await Promise.all([
+    const [cur, fore, aqi, onecall, address] = await Promise.all([
       fetch(`${BASE}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro`).then(r=>r.json()),
       fetch(`${BASE}/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro`).then(r=>r.json()),
       fetch(`${BASE}/air_pollution?lat=${lat}&lon=${lon}&appid=${API_KEY}`).then(r=>r.json()).catch(()=>null),
       fetch(`${BASE3}/onecall?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric&lang=ro&exclude=minutely`).then(r=>r.json()).catch(()=>null),
+      addressHint ? Promise.resolve(addressHint) : reverseGeocode(lat, lon),
     ]);
     if(cur.cod && cur.cod !== 200) throw new Error(cur.message||'Eroare API');
-    currentWeatherData = {cur, fore, aqi, onecall, lat:+lat, lon:+lon};
+    currentWeatherData = {cur, fore, aqi, onecall, address, lat:+lat, lon:+lon};
     renderAll(cur, fore, aqi, onecall);
   }catch(e){ showError('Nu s-au putut obține datele: '+e.message) }
   finally{ showLoading(false) }
@@ -849,7 +887,10 @@ function apparentTemp(t, rh, wKmh){
 
 function renderMain(cur, onecall){
   document.getElementById('city-name').textContent = cur.name;
-  document.getElementById('country-name').textContent = cur.sys.country;
+  const addr = currentWeatherData && currentWeatherData.address;
+  const breadcrumb = addr ? buildLocationBreadcrumb(addr, {skipSettlement:true}) : '';
+  document.getElementById('country-name').textContent = breadcrumb || cur.sys.country;
+  document.title = breadcrumb ? `${cur.name} — ${breadcrumb}` : `Vremea în ${cur.name}`;
   document.getElementById('temp-val').textContent = Math.round(cur.main.temp);
   document.getElementById('weather-desc').textContent = cur.weather[0].description;
   document.getElementById('feel-text').textContent = `Se simte ca ${Math.round(cur.main.feels_like)}°C`;
