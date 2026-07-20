@@ -561,31 +561,19 @@ body.minimal .minimal-hint{opacity:1}
     <div class="chart-wrap"><canvas id="rain6h-chart"></canvas></div>
   </div>
 
-  <!-- 10 DAY + WIND - 2 COL ON PC -->
-  <div class="two-col hide-in-minimal">
-    <div class="card" id="ten-day-card" style="display:none">
-      <div class="section-title">Prognoză 6 zile</div>
-      <div id="ten-day-rows"></div>
+  <!-- 10 DAY FORECAST -->
+  <div class="card hide-in-minimal" id="ten-day-card" style="display:none">
+    <div class="section-title">Prognoză 6 zile</div>
+    <div id="ten-day-rows"></div>
+  </div>
+
+  <!-- DAY DETAIL: temp curve + rain bars for selected day -->
+  <div class="card hide-in-minimal" id="day-detail-card" style="display:none">
+    <div class="section-title" style="justify-content:space-between">
+      <span id="day-detail-title">Detalii zi</span>
+      <span id="day-detail-close" style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text-dim);background:rgba(255,255,255,0.08);border:1px solid var(--glass-border);border-radius:20px;padding:3px 11px" onclick="hideDayDetail()">Închide ✕</span>
     </div>
-    <div class="card" id="wind-card" style="display:none">
-      <div class="section-title">Vânt</div>
-      <div class="wind-top">
-        <div class="compass-ring">
-          <div class="compass-dirs"><span class="cn">N</span><span class="cs">S</span><span class="cw">V</span><span class="ce">E</span></div>
-          <div class="compass-arrow" id="compass-arrow"></div>
-        </div>
-        <div class="wind-info" style="flex:1;min-width:120px">
-          <div class="wind-label">Vânt curent</div>
-          <div style="display:flex;align-items:baseline;gap:6px">
-            <div class="wind-speed-big" id="wind-speed-big">—</div>
-            <div style="font-size:14px;color:var(--text-dim)">km/h</div>
-          </div>
-          <div id="wind-stats" style="margin-top:10px"></div>
-        </div>
-      </div>
-      <div class="wind-label" style="margin-bottom:6px">24 ore</div>
-      <div class="chart-wrap" style="height:150px"><canvas id="wind-chart"></canvas></div>
-    </div>
+    <div class="chart-wrap" style="height:210px"><canvas id="day-detail-chart"></canvas></div>
   </div>
 
   <!-- RAIN 10D -->
@@ -595,6 +583,27 @@ body.minimal .minimal-hint{opacity:1}
       <span id="rain10d-total" style="font-size:12.5px;font-weight:600;color:#ffffff;background:rgba(79,195,247,0.12);border:1px solid rgba(79,195,247,0.3);border-radius:20px;padding:3px 11px;white-space:nowrap"></span>
     </div>
     <div class="chart-wrap" style="height:190px"><canvas id="rain10d-chart"></canvas></div>
+  </div>
+
+  <!-- WIND (last card) -->
+  <div class="card hide-in-minimal" id="wind-card" style="display:none">
+    <div class="section-title">Vânt</div>
+    <div class="wind-top">
+      <div class="compass-ring">
+        <div class="compass-dirs"><span class="cn">N</span><span class="cs">S</span><span class="cw">V</span><span class="ce">E</span></div>
+        <div class="compass-arrow" id="compass-arrow"></div>
+      </div>
+      <div class="wind-info" style="flex:1;min-width:120px">
+        <div class="wind-label">Vânt curent</div>
+        <div style="display:flex;align-items:baseline;gap:6px">
+          <div class="wind-speed-big" id="wind-speed-big">—</div>
+          <div style="font-size:14px;color:var(--text-dim)">km/h</div>
+        </div>
+        <div id="wind-stats" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div class="wind-label" style="margin-bottom:6px">24 ore</div>
+    <div class="chart-wrap" style="height:150px"><canvas id="wind-chart"></canvas></div>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -637,7 +646,7 @@ async function reverseGeocode(lat, lon){
   }catch(e){ return null; }
 }
 
-let rain6hChart=null, rain10dChart=null, windChart=null;
+let rain6hChart=null, rain10dChart=null, windChart=null, dayDetailChart=null;
 let currentWeatherData=null;
 let favorites = JSON.parse(localStorage.getItem('weatherFavorites') || '[]');
 // store last pressure to compute trend
@@ -864,7 +873,7 @@ function renderAll(cur, fore, aqi, onecall){
   renderRain6h(fore, onecall);
   renderWind(cur);
   renderWindChart(fore);
-  renderTenDay(fore);
+  renderTenDay(fore, onecall);
   renderRain10d(fore);
   renderAQI(aqi);
   renderAlerts(cur, fore, aqi, onecall);
@@ -1238,18 +1247,34 @@ function degToDir(d){const dirs=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','
 function beaufort(kmh){if(kmh<1)return'0 - Calm';if(kmh<6)return'1 - Adiere';if(kmh<12)return'2 - Briză ușoară';if(kmh<20)return'3 - Briză slabă';if(kmh<29)return'4 - Briză moderată';if(kmh<39)return'5 - Briză';if(kmh<50)return'6 - Briză tare';if(kmh<62)return'7 - Vânt moderat';if(kmh<75)return'8 - Vânt tare';if(kmh<89)return'9 - Furtună';return'10+ - Furtună';}
 
 /* 10 DAY */
-function renderTenDay(fore){
+let tenDayArr=[]; // stores [dateLabel, dayData] pairs incl. hourly points, for click-to-detail
+let selectedDayIdx=null;
+function renderTenDay(fore, onecall){
   const days={};
   fore.list.forEach(h=>{
     const d=new Date(h.dt*1000).toLocaleDateString('ro-RO',{weekday:'short',day:'numeric',month:'short'});
-    if(!days[d]) days[d]={min:Infinity,max:-Infinity,codes:[],rain:0,pop:0,desc:h.weather[0].description};
+    if(!days[d]) days[d]={min:Infinity,max:-Infinity,codes:[],rain:0,pop:0,desc:h.weather[0].description,hours:[]};
     days[d].min=Math.min(days[d].min,h.main.temp_min);
     days[d].max=Math.max(days[d].max,h.main.temp_max);
     days[d].rain+=(h.rain?.['3h']||0);
     days[d].pop=Math.max(days[d].pop, h.pop||0);
     days[d].codes.push(h.weather[0].id);
+    days[d].hours.push({dt:h.dt,temp:h.main.temp,rain:h.rain?.['3h']||0});
   });
+  // Overlay true per-hour data (One Call, next ~48h) where available for finer-grained curve
+  if(onecall?.hourly && onecall.hourly.length){
+    const ocByDay={};
+    onecall.hourly.forEach(h=>{
+      const d=new Date(h.dt*1000).toLocaleDateString('ro-RO',{weekday:'short',day:'numeric',month:'short'});
+      if(!ocByDay[d]) ocByDay[d]=[];
+      ocByDay[d].push({dt:h.dt,temp:h.temp,rain:h.rain?.['1h']||0});
+    });
+    Object.keys(ocByDay).forEach(d=>{
+      if(days[d] && ocByDay[d].length>=4) days[d].hours = ocByDay[d].sort((a,b)=>a.dt-b.dt);
+    });
+  }
   const arr=Object.entries(days).slice(0,6);
+  tenDayArr = arr;
   // global min/max for proportional temp bar
   const allMin=Math.min(...arr.map(([,d])=>d.min));
   const allMax=Math.max(...arr.map(([,d])=>d.max));
@@ -1258,7 +1283,7 @@ function renderTenDay(fore){
     const leftPct=((d.min-allMin)/range*80).toFixed(1);
     const widthPct=((d.max-d.min)/range*80).toFixed(1);
     const pop=Math.round(d.pop*100);
-    return `<div class="day-row">
+    return `<div class="day-row" onclick="showDayDetail(${i})" style="cursor:pointer">
       <div class="day-name">${date}</div>
       <svg class="day-icon" id="tdicon-${i}" viewBox="0 0 28 28"></svg>
       <div class="day-desc">${d.desc}</div>
@@ -1276,8 +1301,54 @@ function renderTenDay(fore){
     </div>`;
   }).join('');
   arr.forEach(([,d],i)=>{ const svg=document.getElementById(`tdicon-${i}`); if(svg) drawWeatherIcon(svg,mostCommon(d.codes),true,28); });
+  // keep detail card in sync if a day was already selected (e.g. after refresh)
+  if(selectedDayIdx!==null && tenDayArr[selectedDayIdx]) showDayDetail(selectedDayIdx); else hideDayDetail();
 }
 function mostCommon(arr){const f={};let m=0,v=arr[0];arr.forEach(x=>{f[x]=(f[x]||0)+1;if(f[x]>m){m=f[x];v=x}});return v}
+
+/* DAY DETAIL: hourly temp curve + rain bars for a selected day from the 6-day forecast */
+function showDayDetail(i){
+  const entry = tenDayArr[i];
+  if(!entry) return;
+  selectedDayIdx=i;
+  const [date,d]=entry;
+  document.getElementById('day-detail-title').textContent = `${date} — temperatură & precipitații`;
+  const card=document.getElementById('day-detail-card');
+  card.style.display='block';
+  const hours=(d.hours||[]).slice().sort((a,b)=>a.dt-b.dt);
+  const labels=hours.map(h=>new Date(h.dt*1000).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'}));
+  const temps=hours.map(h=>Math.round(h.temp*10)/10);
+  const rains=hours.map(h=>Math.round((h.rain||0)*10)/10);
+  if(dayDetailChart) dayDetailChart.destroy();
+  const ctx=document.getElementById('day-detail-chart').getContext('2d');
+  const gradient=ctx.createLinearGradient(0,0,0,210); gradient.addColorStop(0,'rgba(255,202,40,0.35)'); gradient.addColorStop(1,'rgba(255,202,40,0.02)');
+  dayDetailChart=new Chart(ctx,{
+    data:{
+      labels,
+      datasets:[
+        {type:'bar',label:'Ploaie (mm)',data:rains,backgroundColor:'rgba(79,195,247,0.55)',borderColor:'rgba(79,195,247,0.9)',borderWidth:1,borderRadius:5,yAxisID:'y1',order:2},
+        {type:'line',label:'Temperatură (°C)',data:temps,borderColor:'#ffca28',backgroundColor:gradient,borderWidth:2.5,pointRadius:3,pointBackgroundColor:'#ffca28',tension:0.4,fill:true,yAxisID:'y',order:1}
+      ]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:true,labels:{color:'rgba(255,255,255,0.75)',boxWidth:12,font:{size:11.5}}}},
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'rgba(255,255,255,0.55)',maxRotation:0}},
+        y:{position:'left',grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'#ffca28',callback:v=>v+'°'}},
+        y1:{position:'right',grid:{display:false},ticks:{color:'#4fc3f7',callback:v=>v+'mm'},beginAtZero:true}
+      }
+    }
+  });
+  card.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function hideDayDetail(){
+  selectedDayIdx=null;
+  const card=document.getElementById('day-detail-card');
+  if(card) card.style.display='none';
+  if(dayDetailChart){ dayDetailChart.destroy(); dayDetailChart=null; }
+}
 
 /* RAIN 10D */
 function renderRain10d(fore){
@@ -1527,6 +1598,8 @@ function showAll(){
   document.querySelectorAll('.card').forEach(c=>{
     // keep rain6h hidden if chart hasn't been built yet
     if(c.id==='rain6h-card') return;
+    // keep day detail chart closed until user clicks a day in the 6-day forecast
+    if(c.id==='day-detail-card') return;
     c.style.display='';
   });
 }
