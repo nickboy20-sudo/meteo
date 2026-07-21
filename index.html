@@ -429,7 +429,8 @@ body.minimal .minimal-hint{display:inline}
 /* ══════════════════════════════════════
    ALERTS
 ══════════════════════════════════════ */
-#alerts-band{margin-bottom:4px}
+#alerts-band{display:none !important;margin-bottom:0 !important}
+#rain-alert,.rain-alert{display:none !important}
 .alert-item{
   display:flex;align-items:flex-start;gap:10px;
   padding:12px 15px;border-radius:14px;margin-bottom:8px;
@@ -733,7 +734,7 @@ body.minimal .hide-in-minimal{display:none!important}
   <div id="quick-locations" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px"></div>
   <div id="error-msg"></div>
 
-  <div id="alerts-band"></div>
+  <!-- alerts-band removed -->
 
   <!-- MAIN CARD -->
   <div class="card main-card" id="main-card" style="display:none">
@@ -750,7 +751,7 @@ body.minimal .hide-in-minimal{display:none!important}
     <div class="city-name" id="city-name">—</div>
     <div class="weather-desc" id="weather-desc">—</div>
     <div class="feel" id="feel-text"></div>
-    <div class="rain-alert" id="rain-alert"></div>
+    <!-- rain-alert removed -->
     <div class="weather-main">
       <div class="temp-block">
         <div class="temp-val" id="temp-val">—</div>
@@ -1691,92 +1692,11 @@ const ALERT_SVG = {
 };
 
 function renderAlerts(cur, fore, aqi, onecall){
+  // Notificarea de sus eliminata la cererea utilizatorului
   const band = document.getElementById('alerts-band');
-  const alerts = [];
-  const code=cur.weather[0].id;
-  const temp=cur.main.temp;
-  const wind=cur.wind.speed*3.6;
-  const gust=cur.wind.gust?cur.wind.gust*3.6:0;
-  const hum=cur.main.humidity;
-  const vis=cur.visibility||10000;
-  const uvi=onecall?.current?.uvi??null;
-  const aqiVal=aqi?.list?.[0]?.main?.aqi??0;
-  const nowTs=cur.dt;
-  const nextHours=onecall?.hourly?onecall.hourly.slice(0,6):fore.list.slice(0,2);
-
-  // 1. Official OWM alerts
-  if(onecall?.alerts && onecall.alerts.length>0){
-    onecall.alerts.slice(0,3).forEach(a=>{
-      alerts.push({severity:'severe',icon:ALERT_SVG.storm,title:a.event,body:(a.description||'').slice(0,120)});
-    });
-  }
-  // 2. Storm
-  if(code>=200&&code<300){
-    alerts.push({severity:'severe',icon:ALERT_SVG.storm,title:'Furtună cu descărcări electrice',body:'Evitați spațiile deschise, copacii izolați și obiectele metalice.'});
-  }
-  // 3. Heavy rain
-  const pop6h=nextHours.reduce((a,h)=>Math.max(a,h.pop||0),0);
-  const rain6h=nextHours.reduce((a,h)=>a+(h.rain?.['1h']||h.rain?.['3h']||0),0);
-  if(rain6h>15){
-    alerts.push({severity:'severe',icon:ALERT_SVG.rain,title:`Ploaie torențială (${rain6h.toFixed(1)} mm / 6h)`,body:'Posibil inundații locale. Evitați subsolurile și traversarea cursurilor de apă.'});
-  } else if(rain6h>5||(code>=500&&code<600)){
-    alerts.push({severity:'warn',icon:ALERT_SVG.rain,title:`Ploaie (${rain6h>0?rain6h.toFixed(1)+' mm':''})`,body:pop6h>0.7?`${Math.round(pop6h*100)}% șanse precipitații în 6h.`:''});
-  }
-  // 4. Snow
-  if(code>=600&&code<700){
-    alerts.push({severity:'warn',icon:ALERT_SVG.snow,title:'Ninsoare',body:'Posibil polei sau viscol. Conduceți prudent.'});
-  }
-  // 5. Wind
-  if(gust>88||wind>75){
-    alerts.push({severity:'severe',icon:ALERT_SVG.wind,title:`Vânt extrem (rafale ${Math.round(gust)} km/h)`,body:'Pericol de căderi de arbori și obiecte. Stați în interior.'});
-  } else if(gust>60||wind>50){
-    alerts.push({severity:'warn',icon:ALERT_SVG.wind,title:`Vânt puternic (${Math.round(wind)} km/h, rafale ${Math.round(gust)} km/h)`,body:'Asigurați obiectele din balcon. Conduceți atent.'});
-  }
-  // 6. Temperature extremes
-  if(temp>38){
-    alerts.push({severity:'severe',icon:ALERT_SVG.heat,title:`Caniculă severă (${Math.round(temp)}°C)`,body:'Hidrataţi-vă frecvent. Evitați expunerea directă la soare.'});
-  } else if(temp>33){
-    alerts.push({severity:'warn',icon:ALERT_SVG.heat,title:`Caniculă (${Math.round(temp)}°C)`,body:'Beți apă frecvent, rămâneți la umbră în orele de vârf.'});
-  } else if(temp<-15){
-    alerts.push({severity:'severe',icon:ALERT_SVG.cold,title:`Ger extrem (${Math.round(temp)}°C)`,body:'Pericol de hipotermie. Limitați ieșirile.'});
-  } else if(temp<-5){
-    alerts.push({severity:'warn',icon:ALERT_SVG.cold,title:`Ger (${Math.round(temp)}°C)`,body:'Îmbrăcați-vă adecvat. Atenție la polei.'});
-  }
-  // 7. Fog / visibility
-  if(code>=700&&code<800&&vis<500){
-    alerts.push({severity:'severe',icon:ALERT_SVG.fog,title:'Ceață densă — vizibilitate sub 500m',body:'Reduceți viteza, porniți luminile de ceață.'});
-  } else if(vis<1500){
-    alerts.push({severity:'warn',icon:ALERT_SVG.fog,title:`Ceață — vizibilitate ${(vis/1000).toFixed(1)} km`,body:'Conduceți cu atenție sporită.'});
-  }
-  // 8. UV Index
-  if(uvi !== null){
-    if(uvi >= 11){
-      alerts.push({severity:'severe',icon:ALERT_SVG.sun,title:`UV Extrem (${uvi.toFixed(1)})`,body:'Protecție maximă: stai la umbră între 10–16, SPF 50+, ochelari, pălărie.'});
-    } else if(uvi >= 8){
-      alerts.push({severity:'warn',icon:ALERT_SVG.sun,title:`UV Foarte ridicat (${uvi.toFixed(1)})`,body:'Aplică cremă SPF 30+, limitează expunerea directă la soare.'});
-    } else if(uvi >= 6){
-      alerts.push({severity:'info',icon:ALERT_SVG.glasses,title:`Indice UV ridicat (${uvi.toFixed(1)}) — folosiți protecție solară`,body:''});
-    }
-  }
-  // 9. AQI
-  if(aqiVal >= 5){
-    alerts.push({severity:'severe',icon:ALERT_SVG.mask,title:'Calitate aer VERY POOR — evitați efortul afară',body:'Persoanele cu afecțiuni respiratorii sau cardiace să rămână în interior.'});
-  } else if(aqiVal >= 4){
-    alerts.push({severity:'warn',icon:ALERT_SVG.mask,title:'Calitate aer slabă',body:'Limitați activitățile fizice în exterior, în special cele de lungă durată.'});
-  }
-  // 10. Clear sky info
-  if(alerts.length === 0 && code === 800 && temp > 15){
-    alerts.push({severity:'info',icon:ALERT_SVG.good,title:'Cer senin și condiții bune',body:'Zi perfectă pentru activități în aer liber!'});
-  }
-
-  band.innerHTML = alerts.map(a=>`
-    <div class="alert-item alert-${a.severity}">
-      <div class="alert-icon">${a.icon}</div>
-      <div class="alert-text"><b>${a.title}</b>${a.body?`<span>${a.body}</span>`:''}</div>
-    </div>`).join('');
-
+  if(band){ band.style.display='none'; band.innerHTML=''; }
   const rainAlertEl = document.getElementById('rain-alert');
-  if(rainAlertEl) rainAlertEl.style.display='none';
+  if(rainAlertEl){ rainAlertEl.style.display='none'; rainAlertEl.innerHTML=''; }
 }
 
 /* ══════════════════════════════════════
