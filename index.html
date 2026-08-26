@@ -6,9 +6,7 @@
 <title>Vremea • Prognoză completă</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // Fallback: dacă jsDelivr nu a reușit să încarce Chart.js, încearcă de la cdnjs
 if (typeof window !== "undefined") {
@@ -119,7 +117,7 @@ header.top{display:flex; flex-wrap:wrap; gap:14px; align-items:center; justify-c
 .hero-temp{font-family:var(--font-display); font-size:76px; font-weight:700; line-height:1; margin:10px 0 4px;}
 .hero-desc{font-size:15px; color:var(--text-mid); text-transform:capitalize;}
 .hero-feels{font-size:13px; color:var(--text-lo); margin-top:2px; font-family:var(--font-mono);}
-.hero-stats{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:18px;}
+.hero-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:18px;}
 .hero-stat{background:rgba(255,255,255,0.05); border-radius:12px; padding:10px; text-align:center;}
 .hero-stat .v{font-family:var(--font-mono); font-weight:700; font-size:15px;}
 .hero-stat .l{font-size:10px; color:var(--text-lo); text-transform:uppercase; letter-spacing:0.5px; margin-top:2px;}
@@ -164,16 +162,7 @@ header.top{display:flex; flex-wrap:wrap; gap:14px; align-items:center; justify-c
 .rain-total-num span{font-size:16px; color:var(--text-lo); font-weight:400;}
 
 /* RADAR */
-#radarMap{width:100%; height:420px; border-radius:14px; overflow:hidden;}
-.radar-controls{display:flex; align-items:center; gap:12px; margin-top:12px; flex-wrap:wrap;}
-.radar-controls button{
-  border:1px solid var(--glass-border); background:rgba(255,255,255,0.06); color:var(--text-hi);
-  padding:8px 14px; border-radius:10px; cursor:pointer; font-family:var(--font-mono); font-size:12px; transition:background .2s;
-}
-.radar-controls button:hover{background:rgba(94,234,212,0.15);}
-.radar-time{font-family:var(--font-mono); font-size:12px; color:var(--text-mid); margin-left:auto;}
-input[type=range]{-webkit-appearance:none; height:4px; border-radius:2px; background:rgba(255,255,255,0.15); flex:1; min-width:120px;}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent-cyan); cursor:pointer;}
+#radarMap{width:100%; height:420px; border-radius:14px; overflow:hidden; border:none; display:block;}
 
 /* MODAL */
 .modal{position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:20px;}
@@ -229,6 +218,7 @@ footer.note{text-align:center; color:var(--text-lo); font-size:12px; margin-top:
         <div class="hero-stat"><div class="v" id="heroHumidity">--%</div><div class="l">Umiditate</div></div>
         <div class="hero-stat"><div class="v" id="heroWind">-- km/h</div><div class="l">Vânt</div></div>
         <div class="hero-stat"><div class="v" id="heroPressure">-- hPa</div><div class="l">Presiune</div></div>
+        <div class="hero-stat"><div class="v" id="heroRain1h">0 mm</div><div class="l">Ploaie 1h</div></div>
       </div>
       <div class="sun-arc-wrap" id="sunArcWrap"></div>
     </section>
@@ -274,18 +264,13 @@ footer.note{text-align:center; color:var(--text-lo); font-size:12px; margin-top:
     </section>
 
     <section class="card radar">
-      <h3>Radar meteo <span class="unit-tag">precipitații • ultima oră</span></h3>
-      <div id="radarMap"></div>
-      <div class="radar-controls">
-        <button id="radarPlay">⏸ Pauză</button>
-        <input type="range" id="radarSlider" min="0" max="0" value="0">
-        <span class="radar-time" id="radarTime">--:--</span>
-      </div>
+      <h3>Radar meteo <span class="unit-tag">Windy • precipitații</span></h3>
+      <iframe id="radarMap" src="" frameborder="0" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
     </section>
 
   </main>
 
-  <footer class="note">Date furnizate de OpenWeatherMap &amp; RainViewer • Unități metrice</footer>
+  <footer class="note">Date furnizate de OpenWeatherMap &amp; Windy • Unități metrice</footer>
 </div>
 
 <div class="modal hidden" id="dayModal">
@@ -313,8 +298,7 @@ let state = {
   forecastList: [],
   daily: [],
   tz: 0,
-  location: DEFAULT_CITY,
-  radar: { frames: [], idx: 0, playing: true, timer: null, layer: null, map: null }
+  location: DEFAULT_CITY
 };
 
 /* ================= HELPERS ================= */
@@ -469,6 +453,7 @@ function renderHero(current, locationLabel, tz){
   $("heroHumidity").textContent = `${current.main.humidity}%`;
   $("heroWind").textContent = `${fmt(kmh(current.wind.speed))} km/h`;
   $("heroPressure").textContent = `${current.main.pressure} hPa`;
+  $("heroRain1h").textContent = `${fmt(current.rain?.["1h"] || 0, 1)} mm`;
   renderSunArc(current, tz, isDay);
 }
 function renderSunArc(current, tz, isDay){
@@ -857,59 +842,11 @@ function drawFrame(t){
 }
 requestAnimationFrame(drawFrame);
 
-/* ================= RADAR (RainViewer + Leaflet) ================= */
+/* ================= RADAR (Windy embed) ================= */
 function initRadarMap(lat, lon){
-  if(!state.radar.map){
-    state.radar.map = L.map("radarMap", { zoomControl:true, attributionControl:true }).setView([lat,lon], 7);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains:"abcd", maxZoom:19
-    }).addTo(state.radar.map);
-    L.marker([lat,lon]).addTo(state.radar.map);
-  } else {
-    state.radar.map.setView([lat,lon], 7);
-  }
-  loadRadarFrames();
+  const zoom = 7;
+  $("radarMap").src = `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}&detailLat=${lat}&detailLon=${lon}&width=650&height=450&zoom=${zoom}&level=surface&overlay=radar&product=radar&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=km%2Fh&metricTemp=%C2%B0C&radarRange=-1`;
 }
-async function loadRadarFrames(){
-  try{
-    const res = await fetch("https://api.rainviewer.com/public/weather-maps.json");
-    const data = await res.json();
-    const past = data.radar?.past || [];
-    state.radar.frames = past.slice(-12); // ultima oră aprox (frame la 10 min)
-    state.radar.idx = state.radar.frames.length - 1;
-    $("radarSlider").max = state.radar.frames.length - 1;
-    $("radarSlider").value = state.radar.idx;
-    showRadarFrame(state.radar.idx);
-    startRadarPlayback();
-  } catch(e){ console.error("Radar error", e); }
-}
-function showRadarFrame(idx){
-  const frame = state.radar.frames[idx];
-  if(!frame) return;
-  if(state.radar.layer) state.radar.map.removeLayer(state.radar.layer);
-  state.radar.layer = L.tileLayer(`https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, { opacity:0.65 });
-  state.radar.layer.addTo(state.radar.map);
-  const d = new Date(frame.time*1000);
-  $("radarTime").textContent = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-  $("radarSlider").value = idx;
-}
-function startRadarPlayback(){
-  clearInterval(state.radar.timer);
-  state.radar.timer = setInterval(() => {
-    if(!state.radar.playing || !state.radar.frames.length) return;
-    state.radar.idx = (state.radar.idx + 1) % state.radar.frames.length;
-    showRadarFrame(state.radar.idx);
-  }, 700);
-}
-$("radarPlay").addEventListener("click", () => {
-  state.radar.playing = !state.radar.playing;
-  $("radarPlay").textContent = state.radar.playing ? "⏸ Pauză" : "▶ Redă";
-});
-$("radarSlider").addEventListener("input", (e) => {
-  state.radar.playing = false;
-  $("radarPlay").textContent = "▶ Redă";
-  showRadarFrame(Number(e.target.value));
-});
 
 /* ================= MAIN LOAD FLOW ================= */
 async function loadWeatherFor(location){
@@ -1024,7 +961,7 @@ $("locBtn").addEventListener("click", () => {
 /* ================= INIT ================= */
 function waitForLibs(cb, tries){
   tries = tries || 0;
-  if(typeof Chart !== "undefined" && typeof L !== "undefined"){ cb(); return; }
+  if(typeof Chart !== "undefined"){ cb(); return; }
   if(tries > 100){ cb(); return; } // renunță după ~10s, se randează ce se poate
   setTimeout(() => waitForLibs(cb, tries+1), 100);
 }
@@ -1036,7 +973,6 @@ window.addEventListener("resize", () => {
   cancelAnimationFrame(resizeRaf);
   resizeRaf = requestAnimationFrame(() => {
     [hourlyChartInst, rain9ChartInst, rainChartInst, windChartInst, tempChartInst, modalChartInst].forEach(c => { if(c) c.resize(); });
-    if(state.radar.map) state.radar.map.invalidateSize();
   });
 });
 </script>
